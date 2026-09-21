@@ -26,15 +26,42 @@ async function sha256(text) {
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function retryDelayMs(response, attempt) {
+  const raw = response?.headers?.get("retry-after");
+  const seconds = raw && /^\d+$/.test(raw) ? Number(raw) : null;
+  if (seconds != null) return Math.min(seconds * 1000, 5000);
+  return Math.min(750 * (attempt + 1), 2500);
+}
+
+async function fetchMonitoredSource(url) {
+  let lastResponse = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(url, {
+      redirect: "follow",
+      headers: {
+        "user-agent": "DCB-Expansion-Radar/0.4 source-monitor",
+        "accept": "text/html,application/xhtml+xml"
+      }
+    });
+
+    lastResponse = response;
+    const retryable = response.status === 429 || response.status >= 500;
+    if (!retryable || attempt === 2) return response;
+
+    await wait(retryDelayMs(response, attempt));
+  }
+
+  return lastResponse;
+}
+
 async function inspectSource(id, entry) {
   const started = Date.now();
-  const response = await fetch(entry.url, {
-    redirect: "follow",
-    headers: {
-      "user-agent": "DCB-Expansion-Radar/0.3 source-monitor",
-      "accept": "text/html,application/xhtml+xml"
-    }
-  });
+  const response = await fetchMonitoredSource(entry.url);
 
   const raw = await response.text();
   const normalized = normalizeSourceText(raw);
@@ -446,14 +473,35 @@ async function runAllSourceChecks(env, actor = "system") {
   }
 
   const ids = Object.keys(SOURCE_REGISTRY);
-  const settled = await Promise.allSettled(ids.map(id => checkSourceById(id, env, actor)));
+  const concurrency = 3;
+  let cursor = 0;
+  const results = [];
+
+  async function runner() {
+    while (cursor < ids.length) {
+      const index = cursor;
+      cursor += 1;
+      const id = ids[index];
+
+      try {
+        const value = await checkSourceById(id, env, actor);
+        results[index] = { status: "fulfilled", value };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, ids.length) }, () => runner())
+  );
 
   let checked = 0;
   let changed = 0;
   let failed = 0;
 
-  for (const item of settled) {
-    if (item.status === "fulfilled") {
+  for (const item of results) {
+    if (item?.status === "fulfilled") {
       checked += 1;
       if (item.value.centralChanged) changed += 1;
     } else {
@@ -463,9 +511,11 @@ async function runAllSourceChecks(env, actor = "system") {
 
   const summary = {
     ok: failed === 0,
+    attempted: ids.length,
     checked,
     changed,
     failed,
+    concurrency,
     completedAt: new Date().toISOString(),
     actor
   };
@@ -482,6 +532,63 @@ async function runAllSourceChecks(env, actor = "system") {
   ]);
 
   return summary;
+}
+
+function nextSourceWatchRun(now = new Date()) {
+  const current = new Date(now);
+  const year = current.getUTCFullYear();
+  const month = current.getUTCMonth();
+  const day = current.getUTCDate();
+
+  for (const hour of [6, 18]) {
+    const candidate = new Date(Date.UTC(year, month, day, hour, 0, 0));
+    if (candidate > current) return candidate.toISOString();
+  }
+
+  return new Date(Date.UTC(year, month, day + 1, 6, 0, 0)).toISOString();
+}
+
+async function automationHealth(request, env, ctx) {
+  const gate = await requireWorkspaceContext(request, env, ctx);
+  if (gate.response) return gate.response;
+
+  const [counts, runRow, summaryRow] = await Promise.all([
+    gate.db.prepare(`SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN last_hash IS NOT NULL AND last_error IS NULL AND changed = 0 THEN 1 ELSE 0 END) AS healthy,
+      SUM(CASE WHEN changed = 1 THEN 1 ELSE 0 END) AS changed,
+      SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS failed,
+      SUM(CASE WHEN checked_at IS NULL THEN 1 ELSE 0 END) AS unchecked,
+      SUM(CASE WHEN last_http_status = 429 THEN 1 ELSE 0 END) AS rate_limited,
+      SUM(CASE WHEN checked_at IS NOT NULL AND checked_at < datetime('now','-36 hours') THEN 1 ELSE 0 END) AS stale
+    FROM source_watch_state`).first(),
+    gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_run' LIMIT 1").first(),
+    gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_summary' LIMIT 1").first()
+  ]);
+
+  let lastSummary = null;
+  try {
+    lastSummary = summaryRow?.value ? JSON.parse(summaryRow.value) : null;
+  } catch {
+    lastSummary = null;
+  }
+
+  return json({
+    ok: true,
+    schedule: "0 6,18 * * *",
+    nextRunAt: nextSourceWatchRun(),
+    lastRunAt: runRow?.value || null,
+    lastSummary,
+    sources: {
+      total: Number(counts?.total || 0),
+      healthy: Number(counts?.healthy || 0),
+      changed: Number(counts?.changed || 0),
+      failed: Number(counts?.failed || 0),
+      unchecked: Number(counts?.unchecked || 0),
+      rateLimited: Number(counts?.rate_limited || 0),
+      stale: Number(counts?.stale || 0)
+    }
+  });
 }
 
 async function reviewSourceChange(request, env, ctx) {
@@ -602,6 +709,10 @@ export default {
           url: entry.url
         }))
       });
+    }
+
+    if (url.pathname === "/api/automation/health" && request.method === "GET") {
+      return automationHealth(request, env, ctx);
     }
 
     if (url.pathname === "/api/source-watch/state" && request.method === "GET") {
