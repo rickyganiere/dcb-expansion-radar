@@ -330,3 +330,97 @@ grant select on public.payment_partner_routes to authenticated;
 grant select, insert, delete on public.shortlisted_markets to authenticated;
 grant select, insert, update, delete on public.market_notes to authenticated;
 grant select, insert, update, delete on public.pipeline_items to authenticated;
+
+
+-- Keep mutable records timestamped consistently.
+create or replace function public.radar_set_updated_at()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+revoke all on function public.radar_set_updated_at() from public;
+grant execute on function public.radar_set_updated_at() to authenticated, service_role;
+
+drop trigger if exists markets_updated_at on public.markets;
+create trigger markets_updated_at before update on public.markets
+for each row execute function public.radar_set_updated_at();
+
+drop trigger if exists operators_updated_at on public.operators;
+create trigger operators_updated_at before update on public.operators
+for each row execute function public.radar_set_updated_at();
+
+drop trigger if exists billing_rails_updated_at on public.billing_rails;
+create trigger billing_rails_updated_at before update on public.billing_rails
+for each row execute function public.radar_set_updated_at();
+
+drop trigger if exists commercial_targets_updated_at on public.commercial_targets;
+create trigger commercial_targets_updated_at before update on public.commercial_targets
+for each row execute function public.radar_set_updated_at();
+
+drop trigger if exists contacts_updated_at on public.contacts;
+create trigger contacts_updated_at before update on public.contacts
+for each row execute function public.radar_set_updated_at();
+
+drop trigger if exists market_sources_updated_at on public.market_sources;
+create trigger market_sources_updated_at before update on public.market_sources
+for each row execute function public.radar_set_updated_at();
+
+drop trigger if exists market_score_components_updated_at on public.market_score_components;
+create trigger market_score_components_updated_at before update on public.market_score_components
+for each row execute function public.radar_set_updated_at();
+
+drop trigger if exists payment_partners_updated_at on public.payment_partners;
+create trigger payment_partners_updated_at before update on public.payment_partners
+for each row execute function public.radar_set_updated_at();
+
+drop trigger if exists payment_partner_routes_updated_at on public.payment_partner_routes;
+create trigger payment_partner_routes_updated_at before update on public.payment_partner_routes
+for each row execute function public.radar_set_updated_at();
+
+drop trigger if exists market_notes_updated_at on public.market_notes;
+create trigger market_notes_updated_at before update on public.market_notes
+for each row execute function public.radar_set_updated_at();
+
+drop trigger if exists pipeline_items_updated_at on public.pipeline_items;
+create trigger pipeline_items_updated_at before update on public.pipeline_items
+for each row execute function public.radar_set_updated_at();
+
+-- The Cloudflare Worker will use a Supabase secret key server-side.
+-- Explicit object grants keep backend writes intentional while the secret/service role bypasses RLS.
+grant select, insert, update, delete on public.markets to service_role;
+grant select, insert, update, delete on public.operators to service_role;
+grant select, insert, update, delete on public.billing_rails to service_role;
+grant select, insert, update, delete on public.commercial_targets to service_role;
+grant select, insert, update, delete on public.contacts to service_role;
+grant select, insert, update, delete on public.market_signals to service_role;
+grant select, insert, update, delete on public.market_sources to service_role;
+grant select, insert, update, delete on public.source_checks to service_role;
+grant select, insert, update, delete on public.market_score_components to service_role;
+grant select, insert, update, delete on public.payment_partners to service_role;
+grant select, insert, update, delete on public.payment_partner_routes to service_role;
+grant select, insert, update, delete on public.shortlisted_markets to service_role;
+grant select, insert, update, delete on public.market_notes to service_role;
+grant select, insert, update, delete on public.pipeline_items to service_role;
+
+-- Keep anonymous access closed until a deliberate public-data API is designed.
+revoke all on public.markets from anon;
+revoke all on public.operators from anon;
+revoke all on public.billing_rails from anon;
+revoke all on public.commercial_targets from anon;
+revoke all on public.contacts from anon;
+revoke all on public.market_signals from anon;
+revoke all on public.market_sources from anon;
+revoke all on public.source_checks from anon;
+revoke all on public.market_score_components from anon;
+revoke all on public.payment_partners from anon;
+revoke all on public.payment_partner_routes from anon;
+revoke all on public.shortlisted_markets from anon;
+revoke all on public.market_notes from anon;
+revoke all on public.pipeline_items from anon;
