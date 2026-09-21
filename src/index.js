@@ -26,6 +26,21 @@ async function sha256(text) {
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+function looksLikeChallengePage(title, normalizedText) {
+  const haystack = (String(title || "") + " " + String(normalizedText || "").slice(0, 3000)).toLowerCase();
+  const markers = [
+    "challenge validation",
+    "just a moment",
+    "verify you are human",
+    "checking your browser",
+    "attention required",
+    "security check",
+    "robot check",
+    "access denied"
+  ];
+  return markers.some(marker => haystack.includes(marker));
+}
+
 const hostReadyAt = new Map();
 
 function wait(ms) {
@@ -114,6 +129,7 @@ async function inspectSource(id, entry) {
     type: entry.type,
     url: entry.url,
     ok: response.ok,
+    blocked: looksLikeChallengePage(title, normalized),
     status: response.status,
     finalUrl: response.url,
     hash: await sha256(normalized),
@@ -534,6 +550,14 @@ async function checkSourceById(id, env, actor = "manual") {
       throw error;
     }
 
+    if (result.blocked) {
+      const error = new Error("Bot challenge page returned by monitored source");
+      error.httpStatus = result.status;
+      error.durationMs = result.durationMs;
+      error.title = result.title;
+      throw error;
+    }
+
     if (env.RADAR_DB) {
       const persisted = await persistSourceSuccess(env.RADAR_DB, result, actor);
       return { ...result, persisted: true, centralChanged: persisted.changed };
@@ -645,6 +669,7 @@ async function automationHealth(request, env, ctx) {
       SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS failed,
       SUM(CASE WHEN checked_at IS NULL THEN 1 ELSE 0 END) AS unchecked,
       SUM(CASE WHEN last_http_status = 429 THEN 1 ELSE 0 END) AS rate_limited,
+      SUM(CASE WHEN lower(COALESCE(last_error,'')) LIKE '%bot challenge%' THEN 1 ELSE 0 END) AS blocked,
       SUM(CASE WHEN checked_at IS NOT NULL AND julianday(checked_at) < julianday('now','-36 hours') THEN 1 ELSE 0 END) AS stale
     FROM source_watch_state`).first(),
     gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_run' LIMIT 1").first(),
@@ -679,6 +704,7 @@ async function automationHealth(request, env, ctx) {
       failed: Number(counts?.failed || 0),
       unchecked,
       rateLimited: Number(counts?.rate_limited || 0),
+      blocked: Number(counts?.blocked || 0),
       stale: Number(counts?.stale || 0)
     },
     discovery: {
