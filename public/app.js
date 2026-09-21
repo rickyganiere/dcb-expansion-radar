@@ -19,6 +19,17 @@
     localStorage.setItem("dcb_pipeline", JSON.stringify(state.pipeline));
   }
 
+  function renderKPIs() {
+    const contacts = liveMarkets.reduce((sum,m)=>sum+(m.contacts||[]).length,0);
+    const targets = liveMarkets.reduce((sum,m)=>sum+(m.ecosystem||[]).length,0);
+    if ($("#kpiMarkets")) $("#kpiMarkets").textContent = data.markets.length;
+    if ($("#kpiLive")) $("#kpiLive").textContent = liveMarkets.length;
+    if ($("#kpiContacts")) $("#kpiContacts").textContent = contacts;
+    if ($("#kpiTargets")) $("#kpiTargets").textContent = targets;
+    if ($("#kpiLiveNames")) $("#kpiLiveNames").textContent = liveMarkets.map(m=>m.name).join(" · ");
+    if ($("#liveBadge")) $("#liveBadge").textContent = "Live prototype · "+liveMarkets.length+" evidence-backed markets";
+  }
+
   function confidenceLabel(c) {
     return c === "verified" ? "Verified" : c === "review" ? "Review" : "Unknown";
   }
@@ -419,5 +430,6 @@
   }
 
   wireGlobal();
+  renderKPIs();
   renderMarkets();
 })();
