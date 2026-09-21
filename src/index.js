@@ -99,6 +99,29 @@ async function inspectSource(id, entry) {
   };
 }
 
+async function getSchemaVersion(db) {
+  if (!db) return 0;
+  try {
+    const row = await db
+      .prepare("SELECT value FROM app_meta WHERE key = 'schema_version' LIMIT 1")
+      .first();
+    const version = Number(row?.value || 0);
+    return Number.isFinite(version) ? version : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function migrationRequired(version, required = 3) {
+  return json({
+    ok: false,
+    error: "migration_required",
+    currentSchemaVersion: version,
+    requiredSchemaVersion: required,
+    message: "D1 schema migration is required before this feature can be used."
+  }, { status: 503 });
+}
+
 function cleanStringArray(value, maxItems = 100) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.map(v => String(v || "").trim()).filter(Boolean))].slice(0, maxItems);
@@ -378,7 +401,7 @@ async function persistSourceSuccess(db, result, actor = "system") {
     await historyStatement.run();
   }
 
-  if (changed) {
+  if (changed && await getSchemaVersion(db) >= 3) {
     await db.prepare(`INSERT INTO discovery_candidates (
         source_id, market_id, candidate_type, content_hash,
         title, summary, source_url, status, detected_at, updated_at
@@ -584,6 +607,11 @@ async function automationHealth(request, env, ctx) {
   const gate = await requireWorkspaceContext(request, env, ctx);
   if (gate.response) return gate.response;
 
+  const schemaVersion = await getSchemaVersion(gate.db);
+  const discoveryCount = schemaVersion >= 3
+    ? gate.db.prepare("SELECT COUNT(*) AS pending FROM discovery_candidates WHERE status = 'pending'").first()
+    : Promise.resolve({ pending: 0 });
+
   const [counts, runRow, summaryRow, discoveryRow] = await Promise.all([
     gate.db.prepare(`SELECT
       COUNT(*) AS total,
@@ -596,7 +624,7 @@ async function automationHealth(request, env, ctx) {
     FROM source_watch_state`).first(),
     gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_run' LIMIT 1").first(),
     gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_summary' LIMIT 1").first(),
-    gate.db.prepare("SELECT COUNT(*) AS pending FROM discovery_candidates WHERE status = 'pending'").first()
+    discoveryCount
   ]);
 
   let lastSummary = null;
@@ -608,6 +636,7 @@ async function automationHealth(request, env, ctx) {
 
   return json({
     ok: true,
+    schemaVersion,
     schedule: "0 6,18 * * *",
     nextRunAt: nextSourceWatchRun(),
     lastRunAt: runRow?.value || null,
@@ -630,6 +659,9 @@ async function automationHealth(request, env, ctx) {
 async function discoveryInbox(request, env, ctx, url) {
   const gate = await requireWorkspaceContext(request, env, ctx);
   if (gate.response) return gate.response;
+
+  const schemaVersion = await getSchemaVersion(gate.db);
+  if (schemaVersion < 3) return migrationRequired(schemaVersion, 3);
 
   const requestedStatus = String(url.searchParams.get("status") || "pending");
   const status = ["pending", "accepted", "dismissed", "all"].includes(requestedStatus)
@@ -677,6 +709,9 @@ async function discoveryInbox(request, env, ctx, url) {
 async function reviewDiscoveryCandidate(request, env, ctx) {
   const gate = await requireWorkspaceContext(request, env, ctx);
   if (gate.response) return gate.response;
+
+  const schemaVersion = await getSchemaVersion(gate.db);
+  if (schemaVersion < 3) return migrationRequired(schemaVersion, 3);
 
   let body;
   try {
@@ -808,6 +843,7 @@ export default {
 
     if (url.pathname === "/api/health") {
       const identity = await getVerifiedAccessIdentity(request, env, ctx);
+      const schemaVersion = env.RADAR_DB ? await getSchemaVersion(env.RADAR_DB) : 0;
       return json({
         ok: true,
         service: "dcb-expansion-radar",
@@ -817,7 +853,8 @@ export default {
           database: env.RADAR_DB ? "d1" : "not-configured",
           persistence: env.RADAR_DB ? "d1" : "local-browser",
           sourceWatchPersistence: env.RADAR_DB ? "d1" : "local-browser",
-          accessAuthenticated: Boolean(identity)
+          accessAuthenticated: Boolean(identity),
+          schemaVersion
         },
         timestamp: new Date().toISOString()
       });
