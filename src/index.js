@@ -354,20 +354,38 @@ async function persistSourceSuccess(db, result, actor = "system") {
 async function persistSourceFailure(db, id, entry, error, actor = "system") {
   const now = new Date().toISOString();
   const message = String(error?.message || error || "source_check_failed").slice(0, 500);
+  const httpStatus = Number.isInteger(error?.httpStatus) ? error.httpStatus : null;
+  const durationMs = Number.isFinite(error?.durationMs) ? Math.max(0, Math.round(error.durationMs)) : null;
+  const title = error?.title ? String(error.title).slice(0, 180) : null;
 
   await db.prepare(`INSERT INTO source_watch_state (
       source_id, market_id, label, source_type, url,
-      changed, last_error, checked_at, updated_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?7)
+      changed, last_http_status, last_duration_ms, last_title,
+      last_error, checked_at, updated_at
+    ) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, ?9, ?10, ?10)
     ON CONFLICT(source_id) DO UPDATE SET
       market_id = excluded.market_id,
       label = excluded.label,
       source_type = excluded.source_type,
       url = excluded.url,
+      last_http_status = excluded.last_http_status,
+      last_duration_ms = excluded.last_duration_ms,
+      last_title = COALESCE(excluded.last_title, source_watch_state.last_title),
       last_error = excluded.last_error,
       checked_at = excluded.checked_at,
       updated_at = excluded.updated_at`)
-    .bind(id, entry.marketId, entry.label, entry.type, entry.url, message, now)
+    .bind(
+      id,
+      entry.marketId,
+      entry.label,
+      entry.type,
+      entry.url,
+      httpStatus,
+      durationMs,
+      title,
+      message,
+      now
+    )
     .run();
 
   const current = await db
@@ -378,11 +396,20 @@ async function persistSourceFailure(db, id, entry, error, actor = "system") {
   await db.prepare(`INSERT INTO source_watch_history (
       source_id, content_hash, changed, http_status, duration_ms,
       title, error, actor, checked_at
-    ) VALUES (?1, NULL, ?2, NULL, NULL, NULL, ?3, ?4, ?5)`)
-    .bind(id, Number(current?.changed || 0), message, actor, now)
+    ) VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`)
+    .bind(
+      id,
+      Number(current?.changed || 0),
+      httpStatus,
+      durationMs,
+      title,
+      message,
+      actor,
+      now
+    )
     .run();
 
-  return { error: message };
+  return { error: message, httpStatus };
 }
 
 async function checkSourceById(id, env, actor = "manual") {
@@ -391,6 +418,15 @@ async function checkSourceById(id, env, actor = "manual") {
 
   try {
     const result = await inspectSource(id, entry);
+
+    if (!result.ok) {
+      const error = new Error("HTTP " + result.status + " from monitored source");
+      error.httpStatus = result.status;
+      error.durationMs = result.durationMs;
+      error.title = result.title;
+      throw error;
+    }
+
     if (env.RADAR_DB) {
       const persisted = await persistSourceSuccess(env.RADAR_DB, result, actor);
       return { ...result, persisted: true, centralChanged: persisted.changed };
