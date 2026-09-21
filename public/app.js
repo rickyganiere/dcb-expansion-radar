@@ -211,8 +211,13 @@
   function renderOutreach(m, company="", role="") {
     const companies = m.ecosystem.map(e => e.company);
     const roles = m.contactRoles || [];
+    const people = m.contacts || [];
     return `
       <div class="outreachForm">
+        <label>Named contact<select id="outreachPerson" class="input">
+          <option value="">Generic / role-based</option>
+          ${people.map(p=>`<option value="${esc(p.name)}">${esc(p.name)} — ${esc(p.title)}</option>`).join("")}
+        </select></label>
         <label>Target company<select id="outreachCompany" class="input">${companies.map(c=>`<option ${c===company?"selected":""}>${esc(c)}</option>`).join("")}</select></label>
         <label>Target role<select id="outreachRole" class="input">${roles.map(r=>`<option ${r===role?"selected":""}>${esc(r)}</option>`).join("")}</select></label>
         <label>Our offer<select id="outreachOffer" class="input"><option>OTT service expansion</option><option>VAS content partnership</option><option>DCB monetization partnership</option><option>Operator distribution partnership</option></select></label>
@@ -249,11 +254,24 @@
   }
 
   function generateOutreach(m, root) {
-    const company = $("#outreachCompany", root).value;
-    const role = $("#outreachRole", root).value;
+    const selectedName = $("#outreachPerson", root)?.value || "";
+    const person = (m.contacts || []).find(p => p.name === selectedName);
+    const company = person?.company || $("#outreachCompany", root).value;
+    const role = person?.title || $("#outreachRole", root).value;
     const offer = $("#outreachOffer", root).value;
+    const firstName = person ? person.name.split(" ")[0] : "";
+    const greeting = firstName ? "Hi "+firstName+"," : "Hi,";
     const subject = `${m.name} partnership opportunity — ${offer}`;
-    const body = `Hi,\n\nI'm reaching out because we're exploring ${offer.toLowerCase()} opportunities in ${m.name}. We are currently mapping operator billing, distribution and content partnerships in the market, and ${company} looks relevant to the expansion path.\n\nI'd like to understand whether your ${role} team is currently open to new OTT/VAS partnerships and what the best commercial route would be.\n\nIf relevant, I can send a short overview and we can see if there is a fit.\n\nBest,\nRicky`;
+    const body = `${greeting}
+
+I'm reaching out because we're exploring ${offer.toLowerCase()} opportunities in ${m.name}. We are currently mapping operator billing, distribution and content partnerships in the market, and ${company} looks relevant to the expansion path.
+
+Given your role in ${role}, I'd like to understand whether your team is currently open to new OTT/VAS partnerships and what the best commercial route would be.
+
+If relevant, I can send a short overview and we can see if there is a fit.
+
+Best,
+Ricky`;
     $("#emailSubject", root).textContent = subject;
     $("#emailBody", root).textContent = body;
     $("#copyBox", root).classList.remove("hidden");
