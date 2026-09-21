@@ -37,6 +37,7 @@ jobs:
           node --check public/market-report.js
           node --check public/d1-sync.js
           node --check src/source-registry.js
+          node --check src/access-auth.js
           node --check src/index.js
           node --check scripts/validate-d1.mjs
 
