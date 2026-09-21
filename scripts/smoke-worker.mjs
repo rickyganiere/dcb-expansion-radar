@@ -51,6 +51,10 @@ class FakeStatement {
       };
     }
 
+    if (this.sql.includes("FROM app_meta WHERE key = 'schema_version'")) {
+      return { value: this.db.appMeta.schema_version || null };
+    }
+
     if (this.sql.includes("FROM app_meta WHERE key = 'last_source_watch_run'")) {
       return { value: this.db.appMeta.last_source_watch_run || null };
     }
@@ -131,6 +135,7 @@ class FakeD1 {
   constructor() {
     this.row = null;
     this.appMeta = {
+      schema_version: "3",
       last_source_watch_run: "2026-09-21T23:04:18.973Z",
       last_source_watch_summary: JSON.stringify({
         ok: true,
@@ -319,6 +324,7 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const health = await call("/api/automation/health", { env, ctx: authenticatedCtx });
   assert.equal(health.status, 200);
   const healthPayload = await health.json();
+  assert.equal(healthPayload.schemaVersion, 3);
   assert.equal(healthPayload.sources.total, 14);
   assert.equal(healthPayload.sources.rateLimited, 1);
   assert.equal(healthPayload.discovery.pending, 1);
