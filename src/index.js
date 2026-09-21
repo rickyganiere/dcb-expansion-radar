@@ -614,7 +614,7 @@ async function automationHealth(request, env, ctx) {
 
   const [counts, runRow, summaryRow, discoveryRow] = await Promise.all([
     gate.db.prepare(`SELECT
-      COUNT(*) AS total,
+      COUNT(*) AS tracked,
       SUM(CASE WHEN last_hash IS NOT NULL AND last_error IS NULL AND changed = 0 THEN 1 ELSE 0 END) AS healthy,
       SUM(CASE WHEN changed = 1 THEN 1 ELSE 0 END) AS changed,
       SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS failed,
@@ -634,6 +634,11 @@ async function automationHealth(request, env, ctx) {
     lastSummary = null;
   }
 
+  const registryTotal = Object.keys(SOURCE_REGISTRY).length;
+  const tracked = Number(counts?.tracked || 0);
+  const databaseUnchecked = Number(counts?.unchecked || 0);
+  const unchecked = Math.max(0, registryTotal - tracked) + databaseUnchecked;
+
   return json({
     ok: true,
     schemaVersion,
@@ -642,11 +647,12 @@ async function automationHealth(request, env, ctx) {
     lastRunAt: runRow?.value || null,
     lastSummary,
     sources: {
-      total: Number(counts?.total || 0),
+      total: registryTotal,
+      tracked,
       healthy: Number(counts?.healthy || 0),
       changed: Number(counts?.changed || 0),
       failed: Number(counts?.failed || 0),
-      unchecked: Number(counts?.unchecked || 0),
+      unchecked,
       rateLimited: Number(counts?.rate_limited || 0),
       stale: Number(counts?.stale || 0)
     },
