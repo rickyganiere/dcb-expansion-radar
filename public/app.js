@@ -319,41 +319,54 @@ Ricky`;
 
   function openPipeline() {
     const entries = Object.values(state.pipeline);
+    const stages = ["New","Researching","Contacted","Follow-up","Partnering","Closed"];
+    const stageCounts = Object.fromEntries(stages.map(stage => [stage, entries.filter(e => e.status === stage).length]));
     const body = $("#modalBody");
     body.innerHTML = `
       <div class="eyebrow">Commercial workspace</div>
       <h2>Pipeline</h2>
       <p class="lede">Targets saved from market intelligence. This version is stored locally on this device.</p>
+      <div class="pipelineStats">
+        ${stages.map(stage => `<div class="pipelineStat"><span>${esc(stage)}</span><strong>${stageCounts[stage]}</strong></div>`).join("")}
+      </div>
       <div class="targetTools">
         <button class="btn ghost" id="exportPipeline">Export CSV</button>
       </div>
       <div class="card tableWrap pipelineTable">
         <table>
-          <thead><tr><th>Target</th><th>Market</th><th>Company</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Target</th><th>Market</th><th>Status</th><th>Next follow-up</th><th>Notes</th><th></th></tr></thead>
           <tbody>
             ${entries.map(e => `<tr>
-              <td><strong>${esc(e.name)}</strong><br><small>${esc(e.title || e.role || e.type || "")}</small></td>
-              <td>${esc(data.markets.find(m=>m.id===e.marketId)?.name || e.marketId)}</td>
-              <td>${esc(e.company || e.name)}</td>
+              <td><strong>${esc(e.name)}</strong><br><small>${esc(e.company || "")} · ${esc(e.title || e.role || e.type || "")}</small></td>
+              <td><button class="btn tiny" data-open="${esc(e.marketId)}">${esc(data.markets.find(m=>m.id===e.marketId)?.name || e.marketId)}</button></td>
               <td>
                 <select class="input pipeStatus" data-pipe-key="${esc(e.key)}">
-                  ${["New","Researching","Contacted","Follow-up","Partnering","Closed"].map(s => `<option ${s===e.status?"selected":""}>${s}</option>`).join("")}
+                  ${stages.map(stage => `<option ${stage===e.status?"selected":""}>${stage}</option>`).join("")}
                 </select>
               </td>
+              <td><input class="input pipeFollowup" data-pipe-key="${esc(e.key)}" type="date" value="${esc(e.nextFollowUp || "")}"></td>
+              <td><input class="input pipeNote" data-pipe-key="${esc(e.key)}" placeholder="Add note…" value="${esc(e.notes || "")}"></td>
               <td><button class="btn tiny pipeRemove" data-pipe-key="${esc(e.key)}">Remove</button></td>
-            </tr>`).join("") || `<tr><td colspan="5">Nothing in pipeline yet. Add a company or decision-maker from a market.</td></tr>`}
+            </tr>`).join("") || `<tr><td colspan="6">Nothing in pipeline yet. Add a company or decision-maker from a market.</td></tr>`}
           </tbody>
         </table>
       </div>`;
     $("#modal").showModal();
-    $$(".pipeStatus", body).forEach(sel => sel.addEventListener("change", () => {
-      const key = sel.dataset.pipeKey;
-      if (state.pipeline[key]) {
-        state.pipeline[key].status = sel.value;
-        state.pipeline[key].updatedAt = new Date().toISOString();
-        persist();
-      }
+
+    const updateField = (el, field) => {
+      const key = el.dataset.pipeKey;
+      if (!state.pipeline[key]) return;
+      state.pipeline[key][field] = el.value;
+      state.pipeline[key].updatedAt = new Date().toISOString();
+      persist();
+    };
+
+    $$(".pipeStatus", body).forEach(el => el.addEventListener("change", () => {
+      updateField(el, "status");
+      openPipeline();
     }));
+    $$(".pipeFollowup", body).forEach(el => el.addEventListener("change", () => updateField(el, "nextFollowUp")));
+    $$(".pipeNote", body).forEach(el => el.addEventListener("change", () => updateField(el, "notes")));
     $$(".pipeRemove", body).forEach(btn => btn.addEventListener("click", () => {
       delete state.pipeline[btn.dataset.pipeKey];
       persist();
@@ -365,12 +378,14 @@ Ricky`;
 
   function exportPipeline() {
     const entries = Object.values(state.pipeline);
-    const rows = [["Target","Market","Company","Title/Role","Status"], ...entries.map(e => [
+    const rows = [["Target","Market","Company","Title/Role","Status","Next follow-up","Notes"], ...entries.map(e => [
       e.name,
       data.markets.find(m=>m.id===e.marketId)?.name || e.marketId,
       e.company || e.name,
       e.title || e.role || "",
-      e.status
+      e.status,
+      e.nextFollowUp || "",
+      e.notes || ""
     ])];
     const csv = rows.map(r => r.map(v => '"'+String(v ?? "").replace(/"/g,'""')+'"').join(",")).join("\n");
     const blob = new Blob([csv], {type:"text/csv"});
