@@ -28,7 +28,11 @@ Interactive MVP deployed on Cloudflare Workers Static Assets.
 - Commercial pipeline with stages and CSV export
 - Market signals feed
 - Recheck queue for incomplete or stale intelligence
-- Cloudflare API health/status endpoints
+- Source Watch with per-source content fingerprints and local change detection
+- Per-market commercial notes
+- Workspace backup/restore for local shortlist, pipeline, notes and source baselines
+- Shareable market deep links
+- Cloudflare API health/status/source-monitor endpoints
 - Responsive desktop/tablet/mobile UI
 
 ## Architecture
@@ -60,9 +64,20 @@ public/
   styles.css
   data.js
   signals.js
+  partners.js
+  scores.js
   app.js
+  workspace-tools.js
+  source-watch.js
+  market-notes.js
 src/
   index.js
+  source-registry.js
+scripts/
+  validate-data.mjs
+  smoke-worker.mjs
+.github/workflows/
+  validate.yml
 supabase/
   schema.sql
 wrangler.jsonc
@@ -82,6 +97,8 @@ npx wrangler deploy
 The Worker serves assets from `./public/` and exposes:
 - `GET /api/health`
 - `GET /api/status`
+- `GET /api/sources`
+- `GET /api/check-source?id=<source-id>`
 
 ## Data model
 
@@ -120,5 +137,7 @@ A public billing example does not automatically prove a merchant-ready integrati
 3. Seed the six current markets.
 4. Move shortlist and pipeline from localStorage to authenticated persistence.
 5. Move market intelligence from static JS to API-backed data.
-6. Add automated signal ingestion and stale-evidence checks.
-7. Add scheduled research/scanner jobs without adding a second Cloudflare Worker.
+6. Persist Source Watch fingerprints and reviewed changes in Supabase.
+7. Add automated signal ingestion and stale-evidence checks.
+8. Add scheduled research/scanner jobs without adding a second Cloudflare Worker.
+9. Add authenticated team sync and replace local-only workspace state.
