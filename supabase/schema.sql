@@ -190,6 +190,7 @@ create table if not exists public.pipeline_items (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   market_id uuid references public.markets(id) on delete set null,
+  external_key text not null,
   entity_type text not null check (entity_type in ('company','contact')),
   entity_name text not null,
   company_name text,
@@ -200,7 +201,8 @@ create table if not exists public.pipeline_items (
   last_contacted_at timestamptz,
   next_follow_up_at timestamptz,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (user_id, external_key)
 );
 
 create index if not exists operators_market_id_idx on public.operators(market_id);
