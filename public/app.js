@@ -32,6 +32,21 @@
     if ($("#liveBadge")) $("#liveBadge").textContent = "Live prototype · "+liveMarkets.length+" evidence-backed markets";
   }
 
+  async function checkApiStatus() {
+    const el = $("#apiStatus");
+    if (!el) return;
+    try {
+      const response = await fetch("/api/health", { cache: "no-store" });
+      if (!response.ok) throw new Error("API unavailable");
+      const health = await response.json();
+      el.textContent = health.backend?.database === "configured" ? "API + DB online" : "API online · DB pending";
+      el.classList.add("apiOnline");
+    } catch {
+      el.textContent = "API pending";
+      el.classList.add("apiPending");
+    }
+  }
+
   function confidenceLabel(c) {
     return c === "verified" ? "Verified" : c === "review" ? "Review" : "Unknown";
   }
@@ -544,4 +559,5 @@ Ricky`;
   renderMarkets();
   renderSignals();
   renderRecheckQueue();
+  checkApiStatus();
 })();
