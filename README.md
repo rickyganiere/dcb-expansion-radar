@@ -4,7 +4,9 @@ DCB Expansion Radar is a market-expansion intelligence workspace for DCB, VAS an
 
 ## Current phase
 
-Interactive MVP deployed on Cloudflare Workers Static Assets, with the backend standardized on Cloudflare D1.
+Operational private workspace on Cloudflare Workers + D1 + Cloudflare Access.
+
+Production remains on `main`. New development is prepared on `feature/radar-next` and is not merged until the complete block is validated.
 
 ### Live market intelligence
 - Mexico
@@ -30,39 +32,124 @@ Interactive MVP deployed on Cloudflare Workers Static Assets, with the backend s
 - Due/overdue follow-up alerts
 - Market signals feed
 - Recheck queue for incomplete or stale intelligence
-- Source Watch with per-source content fingerprints and reviewable changes
+- Source Watch with central D1 baselines, history and reviewable changes
+- Twice-daily Source Watch Cron
+- Same-host throttling and retry/backoff for 429/5xx source responses
+- Automation Health dashboard
+- Discovery Inbox for reviewable source-change candidates
 - Per-market commercial notes
 - Workspace backup/restore
 - Shareable market deep links
 - Printable market report export
-- D1 workspace sync client with conflict protection
-- Cloudflare API health/status/source-monitor/workspace endpoints
+- D1 workspace sync with optimistic conflict protection
+- Cloudflare Access identity verification with signed JWT fallback
 - Responsive desktop/tablet/mobile UI
+
+## Reliability model
+
+Automation never promotes a changed page directly into verified intelligence.
+
+```text
+Monitored source
+      |
+      v
+Source Watch fingerprint
+      |
+      +--> no change -> history only
+      |
+      +--> changed -> Discovery Inbox candidate
+                         |
+                         +--> accepted for research
+                         +--> dismissed
+```
+
+A source change is a research signal, not proof of a commercial route.
 
 ## Architecture
 
 ```text
-GitHub (source of truth)
+GitHub
+  |- main                    production
+  |- feature/radar-next      staged development
         |
         v
 Cloudflare Worker
-  |- Static Assets (public/)
-  |- API routes (src/index.js)
-  |- Source Watch
+  |- Static Assets
   |- Workspace API
+  |- Source Watch
+  |- Automation Health
+  |- Discovery Inbox
+  |- scheduled() Cron
         |
         +----> Cloudflare D1
-        |       |- versioned workspace snapshot
-        |       |- source observations
-        |       |- app metadata
+        |       |- workspace_state
+        |       |- source_watch_state
+        |       |- source_watch_history
+        |       |- discovery_candidates
+        |       |- app_meta
         |
         +----> Cloudflare Access
-                |- authenticated user identity
+                |- authenticated account identity
+                |- signed JWT verification
 ```
 
 The site and API share a single Worker. No Supabase dependency is required.
 
-The current market-intelligence dataset remains versioned in GitHub/static assets. D1 initially stores the personal workspace only: shortlist, compare state, pipeline, notes and Source Watch state. This keeps D1 usage extremely small and avoids duplicating data until automatic intelligence ingestion is introduced.
+Static market intelligence remains versioned in GitHub until automatic discovery produces reviewed data that justifies a dynamic intelligence store.
+
+## D1 schema
+
+Current prepared schema version: **3**.
+
+### Migration 0001
+- `workspace_state`
+- `app_meta`
+
+### Migration 0002
+- `source_watch_state`
+- `source_watch_history`
+
+### Migration 0003
+- `discovery_candidates`
+
+Workspace writes use optimistic versioning. A stale client receives `409 version_conflict` instead of silently overwriting newer cloud state.
+
+## Source Watch automation
+
+Cron:
+
+```text
+0 6,18 * * *
+```
+
+Source checks:
+- run with concurrency capped at 3
+- stagger requests to the same hostname
+- retry HTTP 429 and 5xx responses
+- retain a reviewed baseline
+- store check history
+- keep changed state pending until baseline review
+- create one Discovery Inbox candidate per unique source hash
+
+## API
+
+Core endpoints:
+- `GET /api/health`
+- `GET /api/status`
+- `GET /api/workspace/status`
+- `GET /api/workspace`
+- `PUT /api/workspace`
+- `GET /api/sources`
+- `GET /api/check-source?id=<source-id>`
+- `GET /api/source-watch/state`
+- `GET /api/source-watch/history?id=<source-id>`
+- `POST /api/source-watch/review`
+- `POST /api/source-watch/run`
+- `GET /api/automation/health`
+- `GET /api/discovery/inbox?status=pending`
+- `POST /api/discovery/review`
+
+D1 workspace and review actions require a verified Cloudflare Access identity.
 
 ## Repository structure
 
@@ -78,63 +165,33 @@ public/
   workspace-tools.js
   d1-sync.js
   source-watch.js
+  automation-health.js
+  discovery-inbox.js
   market-notes.js
   followup-alerts.js
   market-report.js
 src/
   index.js
+  access-auth.js
   source-registry.js
 migrations/
   0001_workspace.sql
+  0002_source_watch.sql
+  0003_discovery_inbox.sql
 scripts/
   validate-data.mjs
   validate-d1.mjs
   smoke-worker.mjs
+docs/
+  D1_SETUP.md
+  RELEASE_CHECKLIST.md
 .github/workflows/
   validate.yml
 wrangler.jsonc
 README.md
 ```
 
-## Cloudflare deployment
-
-Cloudflare is connected to the GitHub `main` branch.
-
-Deploy command:
-
-```bash
-npx wrangler deploy
-```
-
-The Worker serves assets from `./public/` and exposes:
-- `GET /api/health`
-- `GET /api/status`
-- `GET /api/sources`
-- `GET /api/check-source?id=<source-id>`
-- `GET /api/workspace/status`
-- `GET /api/workspace`
-- `PUT /api/workspace`
-
-Workspace reads/writes are disabled unless:
-1. A D1 database is bound as `RADAR_DB`.
-2. Cloudflare Access authenticates the request.
-
-## D1 schema
-
-Migration `migrations/0001_workspace.sql` creates:
-- `workspace_state` — one versioned JSON workspace per authenticated user
-- `source_observations` — future persistent Source Watch history
-- `app_meta` — schema/application metadata
-
-Workspace writes use optimistic versioning. If two devices edit independently, a stale client receives `409 version_conflict` instead of silently overwriting the newer cloud workspace.
-
-## Cloudflare Access
-
-Workspace ownership comes from Cloudflare Access identity inside the Worker. The browser does not send or control the user ID used by D1.
-
-The public intelligence UI can continue to operate without D1. Workspace cloud persistence activates only once Access and the D1 binding are configured.
-
-## Important product rule
+## Product rule
 
 A market is never marked simply "DCB = yes/no".
 
@@ -149,13 +206,6 @@ The radar distinguishes:
 
 A public billing example does not automatically prove a merchant-ready integration API.
 
-## Next backend steps
+## Release discipline
 
-1. Create the D1 database `dcb-expansion-radar`.
-2. Add the `RADAR_DB` binding to `wrangler.jsonc`.
-3. Apply `migrations/0001_workspace.sql` to the remote D1 database.
-4. Enable Cloudflare Access for the Worker/application.
-5. Verify workspace sync from two browser sessions.
-6. Persist Source Watch history in D1.
-7. Add scheduled source checks and automatic signal ingestion.
-8. Move dynamic market intelligence into D1 only when scanner-generated updates require it.
+Development stays on `feature/radar-next`. Production deployment happens only after the full branch passes validation and the D1 migration is applied in the order documented in `docs/RELEASE_CHECKLIST.md`.
