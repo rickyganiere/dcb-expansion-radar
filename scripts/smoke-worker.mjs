@@ -39,9 +39,9 @@ class FakeStatement {
       return { version: this.db.row.version };
     }
 
-    if (this.sql.includes("FROM source_watch_state") && this.sql.includes("COUNT(*) AS total")) {
+    if (this.sql.includes("FROM source_watch_state") && this.sql.includes("COUNT(*) AS tracked")) {
       return {
-        total: 14,
+        tracked: 14,
         healthy: 13,
         changed: 0,
         failed: 1,
