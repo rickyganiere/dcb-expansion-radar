@@ -5,5 +5,13 @@
   "assets": {
     "directory": "./public/",
     "binding": "ASSETS"
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "RADAR_DB",
+      "database_name": "dcb-expansion-radar",
+      "database_id": "ecb6e87f-3a03-4b6a-a436-8fe3a839bf9a",
+      "migrations_dir": "migrations"
+    }
+  ]
 }
