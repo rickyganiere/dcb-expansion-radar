@@ -45,7 +45,10 @@ jobs:
           grep -q 'insert into public.markets' /tmp/radar-seed.sql
           grep -q 'insert into public.payment_partners' /tmp/radar-seed.sql
 
-      - name: Smoke test Worker API\n        run: node scripts/smoke-worker.mjs\n\n      - name: Check required static assets
+      - name: Smoke test Worker API
+        run: node scripts/smoke-worker.mjs
+
+      - name: Check required static assets
         run: |
           test -f public/index.html
           test -f public/styles.css
