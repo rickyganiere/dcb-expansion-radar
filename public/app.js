@@ -31,7 +31,7 @@
     if ($("#kpiContacts")) $("#kpiContacts").textContent = contacts;
     if ($("#kpiTargets")) $("#kpiTargets").textContent = targets;
     if ($("#kpiLiveNames")) $("#kpiLiveNames").textContent = liveMarkets.map(m=>m.name).join(" · ");
-    if ($("#liveBadge")) $("#liveBadge").textContent = "Live prototype · "+liveMarkets.length+" evidence-backed markets";
+    if ($("#liveBadge")) $("#liveBadge").textContent = "Operational · "+liveMarkets.length+" evidence-backed markets";
   }
 
   async function checkApiStatus() {
@@ -41,7 +41,8 @@
       const response = await fetch("/api/health", { cache: "no-store" });
       if (!response.ok) throw new Error("API unavailable");
       const health = await response.json();
-      el.textContent = health.backend?.database === "configured" ? "API + DB online" : "API online · DB pending";
+      const dbOnline = health.backend?.database === "d1";
+      el.textContent = dbOnline ? "API + D1 online" : "API online · DB pending";
       el.classList.add("apiOnline");
     } catch {
       el.textContent = "API pending";
@@ -370,7 +371,7 @@ Ricky`;
     body.innerHTML = `
       <div class="eyebrow">Commercial workspace</div>
       <h2>Pipeline</h2>
-      <p class="lede">Targets saved from market intelligence. This version is stored locally on this device.</p>
+      <p class="lede">Targets saved from market intelligence. Changes stay available locally and sync to your authenticated D1 workspace.</p>
       <div class="pipelineStats">
         ${stages.map(stage => `<div class="pipelineStat"><span>${esc(stage)}</span><strong>${stageCounts[stage]}</strong></div>`).join("")}
       </div>
