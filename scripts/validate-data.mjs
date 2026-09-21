@@ -11,6 +11,7 @@ function loadWindowScript(path, property) {
 
 const data = loadWindowScript("public/data.js", "RADAR_DATA");
 const signals = loadWindowScript("public/signals.js", "RADAR_SIGNALS");
+const partners = loadWindowScript("public/partners.js", "RADAR_PARTNERS");
 
 const errors = [];
 const allowedConfidence = new Set(["verified", "review", "unknown"]);
@@ -59,6 +60,19 @@ for (const signal of signals) {
   if (!/^https:\/\//.test(signal.sourceUrl || "")) errors.push(`${signal.id}: invalid source URL`);
 }
 
+const partnerIds = new Set();
+for (const partner of partners) {
+  if (partnerIds.has(partner.id)) errors.push(`Duplicate partner id: ${partner.id}`);
+  partnerIds.add(partner.id);
+  for (const marketId of partner.countries || []) {
+    if (!marketIds.has(marketId)) errors.push(`${partner.id}: unknown coverage market ${marketId}`);
+  }
+  for (const route of partner.routes || []) {
+    if (!marketIds.has(route.marketId)) errors.push(`${partner.id}: unknown route market ${route.marketId}`);
+    if (!/^https:\/\//.test(route.evidence || "")) errors.push(`${partner.id}: invalid route evidence URL`);
+  }
+}
+
 const totals = {
   markets: data.markets.length,
   liveMarkets: live.length,
@@ -66,7 +80,9 @@ const totals = {
   billingRails: live.reduce((n,m) => n + (m.rails?.length || 0), 0),
   commercialTargets: live.reduce((n,m) => n + (m.ecosystem?.length || 0), 0),
   contacts: live.reduce((n,m) => n + (m.contacts?.length || 0), 0),
-  signals: signals.length
+  signals: signals.length,
+  partners: partners.length,
+  partnerRoutes: partners.reduce((n,p) => n + (p.routes?.length || 0), 0)
 };
 
 console.log("DCB Expansion Radar data totals:", totals);
