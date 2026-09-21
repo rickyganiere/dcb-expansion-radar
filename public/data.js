@@ -113,7 +113,48 @@ window.RADAR_DATA = {
         { label: "TIM billing evidence", url: "https://www.tim.com.br/ajuda/perguntas-frequentes/servicos-e-assinaturas/streaming/amazon-prime" }
       ]
     },
-    { id: "peru", code: "PE", name: "Peru", score: null, status: "queued", summary: "Next market scheduled for evidence collection.", tags: ["Queued"], operators: [], rails: [], ecosystem: [], contacts: [], contactRoles: [], sources: [] },
+    {
+      id: "peru",
+      code: "PE",
+      name: "Peru",
+      score: 81,
+      status: "live",
+      summary: "Competitive four-operator market with current Google Play carrier billing on Claro postpaid and Entel, plus strong operator-billed OTT/VAS distribution.",
+      tags: ["DCB verified", "OTT billing", "VAS"],
+      operators: [
+        { name: "Claro Perú", group: "América Móvil", share: 33.39, rail: "App-store DCB + operator invoice", confidence: "verified", note: "Google Play currently supports Claro postpaid carrier billing; Claro also reflects additional digital services on the monthly bill." },
+        { name: "Bitel", group: "Viettel", share: 24.68, rail: "VAS / gaming route discovery", confidence: "review", note: "Large and growing operator with an identifiable VAS & Gaming team; a current merchant-ready DCB rail still needs direct validation." },
+        { name: "Entel Perú", group: "Entel", share: 22.72, rail: "App-store DCB + OTT invoice", confidence: "verified", note: "Google Play lists Entel for carrier billing, while Entel Play bills multiple OTT and VAS subscriptions through the operator." },
+        { name: "Movistar Perú", group: "Telefónica", share: 18.95, rail: "Operator OTT billing", confidence: "review", note: "Movistar TV App subscriptions are billed monthly through the operator; generic merchant DCB access requires further validation." }
+      ],
+      rails: [
+        { type: "App-store DCB", provider: "Claro Perú", confidence: "verified", evidence: "Google Play Peru — postpaid only" },
+        { type: "App-store DCB", provider: "Entel Perú", confidence: "verified", evidence: "Google Play Peru" },
+        { type: "Operator invoice / OTT", provider: "Entel Perú", confidence: "verified", evidence: "Entel Play and 2026 operator terms" },
+        { type: "Digital services on invoice", provider: "Claro Perú", confidence: "verified", evidence: "Claro receipt and additional-services documentation" },
+        { type: "Operator-owned OTT billing", provider: "Movistar Perú", confidence: "review", evidence: "Movistar TV App terms; generic merchant route pending" }
+      ],
+      ecosystem: [
+        { company: "Claro Perú", role: "App-store DCB / digital-service billing", status: "Verified" },
+        { company: "Entel Perú", role: "DCB / OTT / VAS distribution", status: "Verified" },
+        { company: "Bitel", role: "VAS & Gaming", status: "Route discovery" },
+        { company: "Movistar Perú", role: "OTT distribution / operator billing", status: "Route recheck" }
+      ],
+      contacts: [
+        { name: "Roberto Morón Martinez", company: "Bitel", title: "Head of VAS & Gaming", location: "Peru", source: "Public professional profile", url: "https://www.linkedin.com/in/robertomoron/" },
+        { name: "José Manuel Jara Castillo", company: "Bitel", title: "Deputy Head - VAS & Gaming", location: "Peru", source: "Public professional profile", url: "https://www.linkedin.com/in/josemanueljaracastillo/" },
+        { name: "Alejandra Consiglieri Arias", company: "Entel Perú", title: "Product Specialist (Analista de VAS & OTTs)", location: "Peru", source: "Public professional profile", url: "https://www.linkedin.com/in/alejandra-consiglieri-arias-46291a209/" },
+        { name: "Arturo Sáenz Revilla", company: "Entel Perú", title: "Solution Sales VAS Specialist", location: "Peru", source: "Public professional profile", url: "https://www.linkedin.com/in/asaenzrevilla/" }
+      ],
+      contactRoles: ["VAS & OTT", "Digital Services", "Business Development", "Carrier Billing"],
+      sources: [
+        { label: "OSIPTEL Q2 2026 market", url: "https://www.osiptel.gob.pe/portal-del-usuario/noticias/osiptel-sin-considerar-lima-y-callao-las-regiones-concentran-el-62-14-de-las-lineas-moviles-en-el-peru/" },
+        { label: "Google Play Peru", url: "https://support.google.com/googleplay/answer/2651410?co=GENIE.CountryCode%3DPE&hl=es" },
+        { label: "Entel Play", url: "https://www.entel.pe/entelplay/" },
+        { label: "Claro receipt / digital services", url: "https://www.claro.com.pe/conoce-tu-recibo/" },
+        { label: "Movistar TV App", url: "https://www.movistar.com.pe/movistar-tv-app/registro/terminos-y-condiciones" }
+      ]
+    },
     { id: "chile", code: "CL", name: "Chile", score: null, status: "queued", summary: "Queued for research.", tags: ["Queued"], operators: [], rails: [], ecosystem: [], contacts: [], contactRoles: [], sources: [] },
     { id: "argentina", code: "AR", name: "Argentina", score: null, status: "queued", summary: "Queued for research.", tags: ["Queued"], operators: [], rails: [], ecosystem: [], contacts: [], contactRoles: [], sources: [] }
   ]
