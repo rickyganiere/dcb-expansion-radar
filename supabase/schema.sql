@@ -98,19 +98,91 @@ create table if not exists public.market_signals (
 
 create table if not exists public.market_sources (
   id uuid primary key default gen_random_uuid(),
+  external_key text unique,
   market_id uuid not null references public.markets(id) on delete cascade,
   label text not null,
   url text not null,
   source_type text,
+  monitor_enabled boolean not null default true,
   last_checked_at timestamptz,
   created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   unique (market_id, url)
+);
+
+create table if not exists public.source_checks (
+  id uuid primary key default gen_random_uuid(),
+  source_id uuid not null references public.market_sources(id) on delete cascade,
+  content_hash text not null,
+  http_status integer,
+  final_url text,
+  page_title text,
+  text_length integer,
+  duration_ms integer,
+  changed boolean not null default false,
+  review_status text not null default 'unreviewed'
+    check (review_status in ('unreviewed','confirmed-change','false-positive','ignored')),
+  review_note text,
+  checked_at timestamptz not null default now()
+);
+
+create table if not exists public.market_score_components (
+  id uuid primary key default gen_random_uuid(),
+  market_id uuid not null references public.markets(id) on delete cascade,
+  model_version text not null default '0.1',
+  component_key text not null,
+  label text not null,
+  description text,
+  score integer not null check (score between 0 and 100),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (market_id, model_version, component_key)
+);
+
+create table if not exists public.payment_partners (
+  id uuid primary key default gen_random_uuid(),
+  slug text not null unique,
+  name text not null,
+  partner_type text not null,
+  confidence text not null default 'unknown'
+    check (confidence in ('verified','review','unknown')),
+  summary text,
+  capabilities text[] not null default '{}',
+  source_label text,
+  source_url text,
+  last_verified_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.payment_partner_routes (
+  id uuid primary key default gen_random_uuid(),
+  partner_id uuid not null references public.payment_partners(id) on delete cascade,
+  market_id uuid not null references public.markets(id) on delete cascade,
+  operator_scope text not null,
+  route_status text not null
+    check (route_status in ('verified','historical-recheck','route-discovery')),
+  note text,
+  evidence_url text,
+  last_verified_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (partner_id, market_id, operator_scope)
 );
 
 create table if not exists public.shortlisted_markets (
   user_id uuid not null references auth.users(id) on delete cascade,
   market_id uuid not null references public.markets(id) on delete cascade,
   created_at timestamptz not null default now(),
+  primary key (user_id, market_id)
+);
+
+create table if not exists public.market_notes (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  market_id uuid not null references public.markets(id) on delete cascade,
+  note text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   primary key (user_id, market_id)
 );
 
@@ -139,6 +211,8 @@ create index if not exists contacts_market_id_idx on public.contacts(market_id);
 create index if not exists contacts_company_name_idx on public.contacts(company_name);
 create index if not exists market_signals_market_observed_idx on public.market_signals(market_id, observed_at desc);
 create index if not exists market_signals_type_idx on public.market_signals(signal_type);
+create index if not exists source_checks_source_checked_idx on public.source_checks(source_id, checked_at desc);
+create index if not exists payment_partner_routes_market_idx on public.payment_partner_routes(market_id);
 create index if not exists pipeline_items_user_stage_idx on public.pipeline_items(user_id, stage);
 
 -- Every Data API-exposed table gets RLS.
@@ -149,7 +223,12 @@ alter table public.commercial_targets enable row level security;
 alter table public.contacts enable row level security;
 alter table public.market_signals enable row level security;
 alter table public.market_sources enable row level security;
+alter table public.source_checks enable row level security;
+alter table public.market_score_components enable row level security;
+alter table public.payment_partners enable row level security;
+alter table public.payment_partner_routes enable row level security;
 alter table public.shortlisted_markets enable row level security;
+alter table public.market_notes enable row level security;
 alter table public.pipeline_items enable row level security;
 
 -- Intelligence is private by default. Authenticated users can read it.
@@ -174,6 +253,18 @@ on public.market_signals for select to authenticated using (true);
 create policy "Authenticated users can read market sources"
 on public.market_sources for select to authenticated using (true);
 
+create policy "Authenticated users can read source checks"
+on public.source_checks for select to authenticated using (true);
+
+create policy "Authenticated users can read score components"
+on public.market_score_components for select to authenticated using (true);
+
+create policy "Authenticated users can read payment partners"
+on public.payment_partners for select to authenticated using (true);
+
+create policy "Authenticated users can read payment partner routes"
+on public.payment_partner_routes for select to authenticated using (true);
+
 -- Per-user shortlist.
 create policy "Users can read their own shortlist"
 on public.shortlisted_markets for select to authenticated
@@ -185,6 +276,24 @@ with check ((select auth.uid()) = user_id);
 
 create policy "Users can delete their own shortlist"
 on public.shortlisted_markets for delete to authenticated
+using ((select auth.uid()) = user_id);
+
+-- Per-user market notes.
+create policy "Users can read their own market notes"
+on public.market_notes for select to authenticated
+using ((select auth.uid()) = user_id);
+
+create policy "Users can add their own market notes"
+on public.market_notes for insert to authenticated
+with check ((select auth.uid()) = user_id);
+
+create policy "Users can update their own market notes"
+on public.market_notes for update to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+create policy "Users can delete their own market notes"
+on public.market_notes for delete to authenticated
 using ((select auth.uid()) = user_id);
 
 -- Per-user commercial pipeline.
@@ -213,6 +322,11 @@ grant select on public.commercial_targets to authenticated;
 grant select on public.contacts to authenticated;
 grant select on public.market_signals to authenticated;
 grant select on public.market_sources to authenticated;
+grant select on public.source_checks to authenticated;
+grant select on public.market_score_components to authenticated;
+grant select on public.payment_partners to authenticated;
+grant select on public.payment_partner_routes to authenticated;
 
 grant select, insert, delete on public.shortlisted_markets to authenticated;
+grant select, insert, update, delete on public.market_notes to authenticated;
 grant select, insert, update, delete on public.pipeline_items to authenticated;
