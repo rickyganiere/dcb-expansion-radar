@@ -32,6 +32,7 @@ Interactive MVP deployed on Cloudflare Workers Static Assets.
 - Per-market commercial notes
 - Workspace backup/restore for local shortlist, pipeline, notes and source baselines
 - Shareable market deep links
+- Printable market report export (print / Save PDF)
 - Cloudflare API health/status/source-monitor endpoints
 - Responsive desktop/tablet/mobile UI
 
@@ -70,6 +71,8 @@ public/
   workspace-tools.js
   source-watch.js
   market-notes.js
+  followup-alerts.js
+  market-report.js
 src/
   index.js
   source-registry.js
