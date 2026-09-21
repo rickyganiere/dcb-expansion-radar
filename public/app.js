@@ -213,7 +213,7 @@
           <td>${esc(p.company)}</td>
           <td>${esc(p.title)}</td>
           <td>${esc(p.location)}</td>
-          <td><div class="rowActions"><button class="btn tiny" data-pipeline-contact="${esc(p.name)}" data-company="${esc(p.company)}" data-title="${esc(p.title)}" data-market-id="${esc(m.id)}">+ Pipeline</button><a class="btn tiny profileLink" href="${esc(p.url)}" target="_blank" rel="noreferrer">Profile ↗</a></div></td>
+          <td><div class="rowActions"><button class="btn tiny" data-pipeline-contact="${esc(p.name)}" data-company="${esc(p.company)}" data-title="${esc(p.title)}" data-market-id="${esc(m.id)}">+ Pipeline</button><button class="btn tiny outreach-person" data-person="${esc(p.name)}">Write outreach</button><a class="btn tiny profileLink" href="${esc(p.url)}" target="_blank" rel="noreferrer">Profile ↗</a></div></td>
         </tr>`).join("") || `<tr><td colspan="5">No named decision-makers mapped yet.</td></tr>`}
       </tbody></table></div>`;
   }
@@ -250,7 +250,7 @@
         $$("[data-target-row]", root).forEach(row => row.hidden = !row.dataset.search.includes(q));
       });
       $("#exportTargets", root)?.addEventListener("click", () => exportTargets(m));
-      $$(".outreach-target", root).forEach(btn => btn.addEventListener("click", () => {
+      $(".outreach-target", root).forEach(btn => btn.addEventListener("click", () => {
         const body = $("#modalBody");
         const outreachTab = $('.tab[data-tab="outreach"]', body);
         outreachTab.click();
@@ -259,8 +259,26 @@
           if (company) company.value = btn.dataset.company;
         }, 0);
       }));
+      $(".outreach-person", root).forEach(btn => btn.addEventListener("click", () => {
+        const body = $("#modalBody");
+        const outreachTab = $('.tab[data-tab="outreach"]', body);
+        outreachTab.click();
+        setTimeout(() => {
+          const person = $("#outreachPerson", body);
+          if (person) {
+            person.value = btn.dataset.person;
+            person.dispatchEvent(new Event("change"));
+          }
+        }, 0);
+      }));
     }
     if (tab === "outreach") {
+      $("#outreachPerson", root)?.addEventListener("change", e => {
+        const person = (m.contacts || []).find(p => p.name === e.target.value);
+        if (!person) return;
+        const company = $("#outreachCompany", root);
+        if (company && [...company.options].some(o => o.value === person.company)) company.value = person.company;
+      });
       $("#generateOutreach", root)?.addEventListener("click", () => generateOutreach(m, root));
       $("#copyEmail", root)?.addEventListener("click", async () => {
         const text = `Subject: ${$("#emailSubject", root).textContent}\n\n${$("#emailBody", root).textContent}`;
