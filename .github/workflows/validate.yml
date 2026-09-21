@@ -35,22 +35,13 @@ jobs:
           node --check public/market-notes.js
           node --check public/followup-alerts.js
           node --check public/market-report.js
-          node --check public/cloud-ui.js
-          node --check public/cloud-sync.js
+          node --check public/d1-sync.js
           node --check src/source-registry.js
           node --check src/index.js
-          node --check scripts/generate-seed.mjs
-          node --check scripts/validate-schema.mjs
+          node --check scripts/validate-d1.mjs
 
-      - name: Validate prepared Supabase schema
-        run: node scripts/validate-schema.mjs
-
-      - name: Generate Supabase seed
-        run: |
-          node scripts/generate-seed.mjs > /tmp/radar-seed.sql
-          test -s /tmp/radar-seed.sql
-          grep -q 'insert into public.markets' /tmp/radar-seed.sql
-          grep -q 'insert into public.payment_partners' /tmp/radar-seed.sql
+      - name: Validate D1 migration
+        run: node scripts/validate-d1.mjs
 
       - name: Smoke test Worker API
         run: node scripts/smoke-worker.mjs
@@ -60,3 +51,4 @@ jobs:
           test -f public/index.html
           test -f public/styles.css
           test -f wrangler.jsonc
+          test -f migrations/0001_workspace.sql
