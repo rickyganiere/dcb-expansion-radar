@@ -1,0 +1,110 @@
+window.RADAR_SIGNALS = [
+  {
+    id: "cl-google-dcb-4",
+    marketId: "chile",
+    type: "billing_route",
+    confidence: "verified",
+    observedAt: "2026-09-21",
+    title: "Google Play carrier billing verified across four major operators",
+    summary: "Entel, Claro, Movistar and WOM are currently listed as carrier-billing options in Chile.",
+    company: "Market-wide",
+    sourceLabel: "Google Play Chile",
+    sourceUrl: "https://support.google.com/googleplay/answer/2651410?co=GENIE.CountryCode%3DCL&hl=es"
+  },
+  {
+    id: "pe-google-dcb",
+    marketId: "peru",
+    type: "billing_route",
+    confidence: "verified",
+    observedAt: "2026-09-21",
+    title: "Claro postpaid and Entel carrier billing verified",
+    summary: "Google Play currently lists Claro postpaid and Entel as mobile billing routes in Peru.",
+    company: "Claro Perú / Entel Perú",
+    sourceLabel: "Google Play Peru",
+    sourceUrl: "https://support.google.com/googleplay/answer/2651410?co=GENIE.CountryCode%3DPE&hl=es"
+  },
+  {
+    id: "pe-market-q2",
+    marketId: "peru",
+    type: "market_update",
+    confidence: "verified",
+    observedAt: "2026-09-21",
+    title: "Peru remains a competitive four-operator market",
+    summary: "OSIPTEL Q2 2026 data shows Claro, Bitel, Entel and Movistar all retaining material mobile share.",
+    company: "Market-wide",
+    sourceLabel: "OSIPTEL Q2 2026",
+    sourceUrl: "https://www.osiptel.gob.pe/portal-del-usuario/noticias/osiptel-sin-considerar-lima-y-callao-las-regiones-concentran-el-62-14-de-las-lineas-moviles-en-el-peru/"
+  },
+  {
+    id: "ar-flow-disney",
+    marketId: "argentina",
+    type: "billing_route",
+    confidence: "verified",
+    observedAt: "2026-09-21",
+    title: "Flow currently invoices Disney+ for eligible customers",
+    summary: "Telecom Argentina bills Disney+ on behalf of Disney for customers subscribing through Flow.",
+    company: "Personal / Flow",
+    sourceLabel: "Flow Disney+",
+    sourceUrl: "https://www.personal.com.ar/flow/plataformas-de-streaming/disney-plus"
+  },
+  {
+    id: "ar-movistar-digital",
+    marketId: "argentina",
+    type: "billing_route",
+    confidence: "verified",
+    observedAt: "2026-09-21",
+    title: "Movistar invoice supports recurring digital-service charges",
+    summary: "Movistar documents games, music, video and other digital subscriptions charged weekly or monthly on the operator bill.",
+    company: "Movistar Argentina",
+    sourceLabel: "Movistar digital services",
+    sourceUrl: "https://ayuda.movistar.com.ar/pregunta/que-son-los-servicios-digitales-que-aparecen-en-mi-factura.html"
+  },
+  {
+    id: "ar-claro-prime",
+    marketId: "argentina",
+    type: "billing_route",
+    confidence: "verified",
+    observedAt: "2026-09-21",
+    title: "Claro currently bills Prime Video as a monthly invoice add-on",
+    summary: "Eligible postpaid mobile and residential customers can add Prime Video to the Claro bill.",
+    company: "Claro Argentina",
+    sourceLabel: "Claro Prime Video terms",
+    sourceUrl: "https://www.claro.com.ar/personas/legal-y-regulatorio/terminos-condiciones-amazon-prime-video"
+  },
+  {
+    id: "br-tim-ott",
+    marketId: "brazil",
+    type: "billing_route",
+    confidence: "verified",
+    observedAt: "2026-09-21",
+    title: "TIM supports invoice and prepaid charging for selected OTT services",
+    summary: "TIM documentation confirms operator-billed streaming with postpaid invoice and, for selected flows, prepaid balance.",
+    company: "TIM Brasil",
+    sourceLabel: "TIM streaming billing",
+    sourceUrl: "https://www.tim.com.br/ajuda/perguntas-frequentes/servicos-e-assinaturas/streaming/amazon-prime"
+  },
+  {
+    id: "co-operator-change",
+    marketId: "colombia",
+    type: "corporate_change",
+    confidence: "verified",
+    observedAt: "2026-09-21",
+    title: "Tigo and Movistar now require post-integration route validation",
+    summary: "The 2026 operator structure changes mean older DCB and distribution assumptions should be revalidated against the integrated commercial entity.",
+    company: "Tigo / Movistar Colombia",
+    sourceLabel: "CRC 2026 market structure",
+    sourceUrl: "https://normograma.crcom.gov.co/crc/compilacion/docs/resolucion_crc_8286_2026.htm"
+  },
+  {
+    id: "mx-google-dcb",
+    marketId: "mexico",
+    type: "billing_route",
+    confidence: "verified",
+    observedAt: "2026-09-21",
+    title: "Telcel and AT&T Mexico carrier billing currently verified",
+    summary: "Google Play currently lists Telcel and AT&T Mexico as mobile billing routes.",
+    company: "Telcel / AT&T Mexico",
+    sourceLabel: "Google Play Mexico",
+    sourceUrl: "https://support.google.com/googleplay/answer/2651410?co=GENIE.CountryCode%3DMX&hl=en"
+  }
+];
