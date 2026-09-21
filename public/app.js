@@ -42,7 +42,10 @@
       if (!response.ok) throw new Error("API unavailable");
       const health = await response.json();
       const dbOnline = health.backend?.database === "d1";
-      el.textContent = dbOnline ? "API + D1 online" : "API online · DB pending";
+      const schemaVersion = Number(health.backend?.schemaVersion || 0);
+      el.textContent = dbOnline
+        ? "API + D1" + (schemaVersion ? " v" + schemaVersion : "") + " online"
+        : "API online · DB pending";
       el.classList.add("apiOnline");
     } catch {
       el.textContent = "API pending";
