@@ -28,6 +28,8 @@ assert.match(discoverySql, /status TEXT NOT NULL DEFAULT 'pending'/i);
 assert.match(discoverySql, /accepted/i);
 assert.match(discoverySql, /dismissed/i);
 assert.match(discoverySql, /CREATE INDEX IF NOT EXISTS discovery_candidates_status_detected_idx/i);
+assert.match(discoverySql, /previously captured bot challenge/i);
+assert.match(discoverySql, /baseline_hash = NULL/i);
 assert.match(discoverySql, /schema_version', '3/i);
 
 assert.doesNotMatch(combined, /auth\.users/i);
