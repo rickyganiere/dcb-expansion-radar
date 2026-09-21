@@ -1,9 +1,11 @@
 (() => {
   const data = window.RADAR_DATA || { markets: [] };
+  const signals = window.RADAR_SIGNALS || [];
   const liveMarkets = data.markets.filter(m => m.status === "live");
   const state = {
     query: "",
     filter: "all",
+    signalFilter: "all",
     compare: new Set(JSON.parse(localStorage.getItem("dcb_compare") || "[]")),
     shortlist: new Set(JSON.parse(localStorage.getItem("dcb_shortlist") || "[]")),
     pipeline: JSON.parse(localStorage.getItem("dcb_pipeline") || "{}")
@@ -381,9 +383,99 @@ Ricky`;
     $("#modal").showModal();
   }
 
+
+  function signalTypeLabel(type) {
+    return ({
+      billing_route: "Billing route",
+      market_update: "Market update",
+      corporate_change: "Corporate change",
+      partnership: "Partnership"
+    })[type] || type;
+  }
+
+  function renderSignals() {
+    const root = $("#signalsList");
+    if (!root) return;
+    const filtered = signals
+      .filter(s => state.signalFilter === "all" || s.type === state.signalFilter)
+      .sort((a,b) => String(b.observedAt).localeCompare(String(a.observedAt)));
+    root.innerHTML = filtered.map(s => {
+      const market = data.markets.find(m => m.id === s.marketId);
+      return `
+        <article class="card signalCard">
+          <div class="signalTop">
+            <div>
+              <span class="signalType">${esc(signalTypeLabel(s.type))}</span>
+              <span class="confidence ${esc(s.confidence)}">${confidenceLabel(s.confidence)}</span>
+            </div>
+            <span class="signalDate">${esc(s.observedAt)}</span>
+          </div>
+          <h3>${esc(s.title)}</h3>
+          <p>${esc(s.summary)}</p>
+          <div class="signalMeta"><strong>${esc(market?.name || s.marketId)}</strong> · ${esc(s.company || "")}</div>
+          <div class="rowActions">
+            <button class="btn tiny" data-open="${esc(s.marketId)}">Open market</button>
+            <a class="btn tiny profileLink" href="${esc(s.sourceUrl)}" target="_blank" rel="noreferrer">Evidence ↗</a>
+          </div>
+        </article>`;
+    }).join("") || `<div class="empty card">No signals in this filter.</div>`;
+  }
+
+  function buildRecheckQueue() {
+    const rows = [];
+    liveMarkets.forEach(m => {
+      (m.rails || []).forEach(r => {
+        if (r.confidence !== "verified") {
+          rows.push({
+            marketId: m.id,
+            market: m.name,
+            target: r.provider,
+            detail: r.type + " · " + r.evidence,
+            confidence: r.confidence,
+            priority: r.confidence === "unknown" ? "High" : "Medium"
+          });
+        }
+      });
+      (m.operators || []).forEach(o => {
+        if (o.confidence !== "verified" && !(m.rails || []).some(r => r.provider === o.name && r.confidence !== "verified")) {
+          rows.push({
+            marketId: m.id,
+            market: m.name,
+            target: o.name,
+            detail: o.rail + " · " + o.note,
+            confidence: o.confidence,
+            priority: o.confidence === "unknown" ? "High" : "Medium"
+          });
+        }
+      });
+    });
+    return rows.sort((a,b) => (a.priority === "High" ? -1 : 1) - (b.priority === "High" ? -1 : 1));
+  }
+
+  function renderRecheckQueue() {
+    const root = $("#recheckRows");
+    if (!root) return;
+    const rows = buildRecheckQueue();
+    const count = $("#recheckCount");
+    if (count) count.textContent = rows.length;
+    root.innerHTML = rows.map(r => `
+      <tr>
+        <td><strong>${esc(r.market)}</strong></td>
+        <td>${esc(r.target)}</td>
+        <td>${esc(r.detail)}</td>
+        <td><span class="status ${r.priority === "High" ? "priorityHigh" : "priorityMedium"}">${esc(r.priority)}</span></td>
+        <td><button class="btn tiny" data-open="${esc(r.marketId)}">Review</button></td>
+      </tr>`).join("") || `<tr><td colspan="5">No rechecks pending.</td></tr>`;
+  }
+
   function wireGlobal() {
     $("#marketSearch")?.addEventListener("input", e => { state.query = e.target.value; renderMarkets(); });
-    $$(".filterBtn").forEach(btn => btn.addEventListener("click", () => {
+    $(".signalFilter").forEach(btn => btn.addEventListener("click", () => {
+      state.signalFilter = btn.dataset.signalFilter;
+      $(".signalFilter").forEach(b => b.classList.toggle("active", b === btn));
+      renderSignals();
+    }));
+    $(".filterBtn").forEach(btn => btn.addEventListener("click", () => {
       state.filter = btn.dataset.filter;
       $$(".filterBtn").forEach(b => b.classList.toggle("active", b === btn));
       renderMarkets();
@@ -450,4 +542,6 @@ Ricky`;
   wireGlobal();
   renderKPIs();
   renderMarkets();
+  renderSignals();
+  renderRecheckQueue();
 })();
