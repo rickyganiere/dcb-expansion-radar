@@ -2,6 +2,7 @@
   const data = window.RADAR_DATA || { markets: [] };
   const signals = window.RADAR_SIGNALS || [];
   const partners = window.RADAR_PARTNERS || [];
+  const scoreModel = window.RADAR_SCORES || { components: [], markets: {} };
   const liveMarkets = data.markets.filter(m => m.status === "live");
   const state = {
     query: "",
@@ -155,6 +156,7 @@
       <div class="modalTabs">
         <button class="tab active" data-tab="overview">Overview</button>
         <button class="tab" data-tab="rails">Billing rails</button>
+        <button class="tab" data-tab="score">Score model</button>
         <button class="tab" data-tab="targets">Targets</button>
         <button class="tab" data-tab="outreach">Outreach</button>
       </div>
@@ -165,6 +167,7 @@
       const target = $("#tabContent", body);
       if (tab === "overview") target.innerHTML = renderOverview(m);
       if (tab === "rails") target.innerHTML = renderRails(m);
+      if (tab === "score") target.innerHTML = renderScore(m);
       if (tab === "targets") target.innerHTML = renderTargets(m);
       if (tab === "outreach") target.innerHTML = renderOutreach(m);
       bindTabActions(m, tab, target);
@@ -195,6 +198,29 @@
             <div><span class="confidence ${esc(r.confidence)}">${confidenceLabel(r.confidence)}</span><h3>${esc(r.type)}</h3><p>${esc(r.provider)}</p></div>
             <div class="railEvidence"><span>Evidence</span><strong>${esc(r.evidence)}</strong></div>
           </article>`).join("")}
+      </div>`;
+  }
+
+  function renderScore(m) {
+    const values = scoreModel.markets?.[m.id] || {};
+    const components = scoreModel.components || [];
+    const computed = components.length
+      ? Math.round(components.reduce((sum, component) => sum + (values[component.key] || 0), 0) / components.length)
+      : m.score;
+    return `
+      <div class="scoreExplain card">
+        <strong>Internal opportunity score: ${m.score}/100</strong>
+        <p>${esc(scoreModel.methodology || "Internal research score.")}</p>
+        <div class="scoreCheck">${computed === m.score ? "✓ Component average matches market score" : "⚠ Score model needs review"}</div>
+      </div>
+      <div class="scoreComponents">
+        ${components.map(component => {
+          const value = values[component.key] ?? 0;
+          return `<article class="card scoreComponent">
+            <div class="scoreComponentTop"><div><h3>${esc(component.label)}</h3><p>${esc(component.description)}</p></div><strong>${value}</strong></div>
+            <div class="progress"><span style="width:${value}%"></span></div>
+          </article>`;
+        }).join("")}
       </div>`;
   }
 
