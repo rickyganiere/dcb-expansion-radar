@@ -871,17 +871,16 @@ async function reviewSourceChange(request, env, ctx) {
   });
 }
 
-async function sourceWatchHistory(url, env) {
-  if (!env.RADAR_DB) {
-    return json({ ok: false, error: "d1_not_configured" }, { status: 503 });
-  }
+async function sourceWatchHistory(url, request, env, ctx) {
+  const gate = await requireWorkspaceContext(request, env, ctx);
+  if (gate.response) return gate.response;
 
   const id = String(url.searchParams.get("id") || "");
   if (!SOURCE_REGISTRY[id]) {
     return json({ ok: false, error: "unknown_source" }, { status: 404 });
   }
 
-  const result = await env.RADAR_DB.prepare(`SELECT
+  const result = await gate.db.prepare(`SELECT
       id, source_id, content_hash, changed, http_status,
       duration_ms, title, error, actor, checked_at
     FROM source_watch_history
@@ -954,14 +953,13 @@ export default {
     }
 
     if (url.pathname === "/api/source-watch/state" && request.method === "GET") {
-      if (!env.RADAR_DB) {
-        return json({ ok: false, error: "d1_not_configured" }, { status: 503 });
-      }
-      return json({ ok: true, state: await getSourceState(env.RADAR_DB) });
+      const gate = await requireWorkspaceContext(request, env, ctx);
+      if (gate.response) return gate.response;
+      return json({ ok: true, state: await getSourceState(gate.db) });
     }
 
     if (url.pathname === "/api/source-watch/history" && request.method === "GET") {
-      return sourceWatchHistory(url, env);
+      return sourceWatchHistory(url, request, env, ctx);
     }
 
     if (url.pathname === "/api/source-watch/review" && request.method === "POST") {
