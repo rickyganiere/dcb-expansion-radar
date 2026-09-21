@@ -385,21 +385,23 @@
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "History unavailable");
 
+      const historyItems = (payload.history || []).map(item => {
+        const state = item.error ? "Check failed" : Number(item.changed) ? "Changed vs baseline" : "No change";
+        return '<div class="sourceHistoryItem"><strong>' + esc(state) + '</strong><small>' +
+          esc(new Date(item.checked_at).toLocaleString()) +
+          (item.http_status ? ' · HTTP ' + esc(item.http_status) : '') +
+          (item.actor ? ' · ' + esc(item.actor) : '') +
+          '</small>' +
+          (item.title ? '<small>' + esc(item.title) + '</small>' : '') +
+          (item.error ? '<small>' + esc(item.error) + '</small>' : '') +
+          (item.content_hash ? '<div class="hash">' + esc(String(item.content_hash).slice(0,20)) + '…</div>' : '') +
+        '</div>';
+      }).join("");
+
       body.innerHTML =
         '<div class="row between"><div><div class="eyebrow">Source history</div><h3>' + esc(source?.label || id) + '</h3></div><button class="btn tiny" id="closeSourceHistory">Close</button></div>' +
         '<div class="sourceHistoryList">' +
-        (payload.history || []).map(item => {
-          const state = item.error ? "Check failed" : Number(item.changed) ? "Changed vs baseline" : "No change";
-          return '<div class="sourceHistoryItem"><strong>' + esc(state) + '</strong><small>' +
-            esc(new Date(item.checked_at).toLocaleString()) +
-            (item.http_status ? ' · HTTP ' + esc(item.http_status) : '') +
-            (item.actor ? ' · ' + esc(item.actor) : '') +
-            '</small>' +
-            (item.title ? '<small>' + esc(item.title) + '</small>' : '') +
-            (item.error ? '<small>' + esc(item.error) + '</small>' : '') +
-            (item.content_hash ? '<div class="hash">' + esc(String(item.content_hash).slice(0,20)) + '…</div>' : '') +
-          '</div>';
-        }).join("") || '<div class="empty">No history yet.</div>') +
+        (historyItems || '<div class="empty">No history yet.</div>') +
         '</div>';
       document.getElementById("closeSourceHistory").onclick = () => dialog.close();
     } catch (error) {
