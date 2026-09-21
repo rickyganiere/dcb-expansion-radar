@@ -45,32 +45,57 @@ async function waitForHostSlot(url) {
 
 function retryDelayMs(response, attempt) {
   const raw = response?.headers?.get("retry-after");
-  const seconds = raw && /^\d+$/.test(raw) ? Number(raw) : null;
-  if (seconds != null) return Math.min(seconds * 1000, 5000);
+
+  if (raw && /^\d+$/.test(raw)) {
+    return Math.min(Number(raw) * 1000, 5000);
+  }
+
+  if (raw) {
+    const retryAt = Date.parse(raw);
+    if (Number.isFinite(retryAt)) {
+      return Math.max(0, Math.min(retryAt - Date.now(), 5000));
+    }
+  }
+
   return Math.min(750 * (attempt + 1), 2500);
 }
 
 async function fetchMonitoredSource(url) {
   let lastResponse = null;
+  let lastError = null;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await waitForHostSlot(url);
-    const response = await fetch(url, {
-      redirect: "follow",
-      headers: {
-        "user-agent": "DCB-Expansion-Radar/0.4 source-monitor",
-        "accept": "text/html,application/xhtml+xml"
+
+    try {
+      const response = await fetch(url, {
+        redirect: "follow",
+        headers: {
+          "user-agent": "DCB-Expansion-Radar/0.4 source-monitor",
+          "accept": "text/html,application/xhtml+xml"
+        }
+      });
+
+      lastResponse = response;
+      const retryable = response.status === 429 || response.status >= 500;
+      if (!retryable || attempt === 2) return response;
+
+      const delay = retryDelayMs(response, attempt);
+      try {
+        await response.body?.cancel();
+      } catch {
+        // Best-effort connection cleanup before retry.
       }
-    });
-
-    lastResponse = response;
-    const retryable = response.status === 429 || response.status >= 500;
-    if (!retryable || attempt === 2) return response;
-
-    await wait(retryDelayMs(response, attempt));
+      await wait(delay);
+    } catch (error) {
+      lastError = error;
+      if (attempt === 2) throw error;
+      await wait(Math.min(750 * (attempt + 1), 2500));
+    }
   }
 
-  return lastResponse;
+  if (lastResponse) return lastResponse;
+  throw lastError || new Error("source_fetch_failed");
 }
 
 async function inspectSource(id, entry) {
