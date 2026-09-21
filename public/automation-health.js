@@ -72,6 +72,7 @@
         (summary
           ? 'Last run: ' + esc(attempted) + ' attempted · ' + esc(summary.checked ?? 0) + ' successful · ' + esc(summary.changed ?? 0) + ' changed · ' + esc(summary.failed ?? 0) + ' failed'
           : 'No scheduled run summary saved yet.') +
+        ' · Discovery Inbox: ' + esc(payload.discovery?.pending ?? 0) + ' pending' +
       '</div>';
   }
 
