@@ -47,6 +47,7 @@ class FakeStatement {
         failed: 1,
         unchecked: 0,
         rate_limited: 1,
+        blocked: 1,
         stale: 0
       };
     }
@@ -327,6 +328,7 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   assert.equal(healthPayload.schemaVersion, 3);
   assert.equal(healthPayload.sources.total, 14);
   assert.equal(healthPayload.sources.rateLimited, 1);
+  assert.equal(healthPayload.sources.blocked, 1);
   assert.equal(healthPayload.discovery.pending, 1);
   assert.equal(healthPayload.lastSummary.checked, 14);
 
@@ -431,6 +433,25 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   }
 }
 
+{
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response("<html><title>Challenge Validation</title><body>Please verify you are human</body></html>", {
+      status: 200,
+      headers: { "content-type": "text/html" }
+    });
+
+  try {
+    const response = await call("/api/check-source?id=mx-crt-mobile");
+    assert.equal(response.status, 502);
+    const payload = await response.json();
+    assert.equal(payload.error, "source_check_failed");
+    assert.match(payload.detail, /Bot challenge/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 
 {
   const response = await call("/api/not-real");
@@ -450,5 +471,6 @@ console.log("Worker smoke tests passed:", {
   optimisticConcurrency: true,
   automationHealth: true,
   discoveryInbox: true,
-  rateLimitRetry: true
+  rateLimitRetry: true,
+  botChallengeDetection: true
 });
