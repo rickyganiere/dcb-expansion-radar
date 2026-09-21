@@ -26,6 +26,12 @@ window.RADAR_DATA = {
         { company: "Digital Virgo", role: "DCB / content monetization", status: "Verified Mexico" },
         { company: "Movistar", role: "Mobile operator / OTT distribution", status: "Route recheck" }
       ],
+      contacts: [
+        { name: "Marco Quatorze", company: "Telcel", title: "VAS Director", location: "Mexico", source: "Public professional profile", url: "https://www.linkedin.com/in/marco14/" },
+        { name: "Sergio Collazo", company: "Telcel", title: "Gerente de Ingeniería y Diseño de Proyectos SVA México y AMX", location: "Mexico City", source: "Public professional profile", url: "https://www.linkedin.com/in/sergiocollazo/" },
+        { name: "Viviana Ortega", company: "AT&T México", title: "Business Development and Innovation Manager", location: "Mexico City", source: "Public professional profile", url: "https://www.linkedin.com/in/viviana-ortega-a104b967/" },
+        { name: "Yarir Villalobos Montiel", company: "AT&T México", title: "Business Development Manager", location: "Mexico City", source: "Public professional profile", url: "https://www.linkedin.com/in/yarirvm/" }
+      ],
       contactRoles: ["Head of Digital Services", "VAS Partnerships", "Carrier Billing", "Business Development"],
       sources: [
         { label: "CRT market source", url: "https://www.gob.mx/crt/prensa/reporta-crt-144-5-millones-de-lineas-celulares-activas-en-mexico" },
@@ -55,6 +61,11 @@ window.RADAR_DATA = {
         { company: "Tigo Colombia", role: "OTT distribution", status: "Verified distribution" },
         { company: "Movistar Colombia", role: "Integrated operator", status: "2026 structure change" },
         { company: "WOM Colombia", role: "Mobile operator", status: "Discovery needed" }
+      ],
+      contacts: [
+        { name: "Julian Jimenez Morales", company: "Claro Colombia", title: "Head of Cloud & Services Business Development", location: "Bogotá", source: "Public professional profile", url: "https://www.linkedin.com/in/jose-julian-jimenez-772b3347/" },
+        { name: "Adriana Landinez", company: "Claro Colombia", title: "Gerente de desarrollo de negocio", location: "Bogotá", source: "Public professional profile", url: "https://www.linkedin.com/in/adrianalandinez/" },
+        { name: "Harold Yezid Leguízamo Torres", company: "Claro Colombia", title: "Business Development Leader", location: "Bogotá", source: "Public professional profile", url: "https://www.linkedin.com/in/harold-yezid-leguízamo-torres-737330168/" }
       ],
       contactRoles: ["Digital Partnerships", "VAS Manager", "Content Partnerships", "Carrier Billing"],
       sources: [
@@ -88,6 +99,13 @@ window.RADAR_DATA = {
         { company: "Vivo", role: "Digital-service billing", status: "Route recheck" },
         { company: "Telefônica Brasil", role: "Operator / digital services", status: "Market leader" }
       ],
+      contacts: [
+        { name: "Mário Sergio Rachid", company: "Claro Brasil", title: "Diretor Executivo de Soluções Digitais", location: "São Paulo", source: "Public professional profile", url: "https://www.linkedin.com/in/mário-sergio-rachid-20017855/" },
+        { name: "Bárbara Santana", company: "TIM Brasil", title: "Product Manager Sênior | Data Partnerships & Open Gateway", location: "Rio de Janeiro", source: "Public professional profile", url: "https://www.linkedin.com/in/barbarasantanac/" },
+        { name: "Marcello Serafini", company: "TIM Brasil", title: "Business Development Specialist", location: "São Paulo", source: "Public professional profile", url: "https://www.linkedin.com/in/marcello-serafini-b25a3696/" },
+        { name: "Eduardo Ferrari Machado", company: "Vivo (Telefônica Brasil)", title: "Strategic Account Manager – Digital Services", location: "São Paulo", source: "Public professional profile", url: "https://www.linkedin.com/in/eduferrari/" },
+        { name: "Rafael Marciano", company: "Vivo (Telefônica Brasil)", title: "Head of Business Development, Vivo Ventures", location: "São Paulo", source: "Public professional profile", url: "https://www.linkedin.com/in/marcianorafael/" }
+      ],
       contactRoles: ["Director Digital Services", "VAS & Content", "Partnerships", "Carrier Billing"],
       sources: [
         { label: "Anatel", url: "https://www.gov.br/anatel/pt-br/regulado/universalizacao" },
@@ -95,8 +113,8 @@ window.RADAR_DATA = {
         { label: "TIM billing evidence", url: "https://www.tim.com.br/ajuda/perguntas-frequentes/servicos-e-assinaturas/streaming/amazon-prime" }
       ]
     },
-    { id: "peru", code: "PE", name: "Peru", score: null, status: "queued", summary: "Next market scheduled for evidence collection.", tags: ["Queued"], operators: [], rails: [], ecosystem: [], contactRoles: [], sources: [] },
-    { id: "chile", code: "CL", name: "Chile", score: null, status: "queued", summary: "Queued for research.", tags: ["Queued"], operators: [], rails: [], ecosystem: [], contactRoles: [], sources: [] },
-    { id: "argentina", code: "AR", name: "Argentina", score: null, status: "queued", summary: "Queued for research.", tags: ["Queued"], operators: [], rails: [], ecosystem: [], contactRoles: [], sources: [] }
+    { id: "peru", code: "PE", name: "Peru", score: null, status: "queued", summary: "Next market scheduled for evidence collection.", tags: ["Queued"], operators: [], rails: [], ecosystem: [], contacts: [], contactRoles: [], sources: [] },
+    { id: "chile", code: "CL", name: "Chile", score: null, status: "queued", summary: "Queued for research.", tags: ["Queued"], operators: [], rails: [], ecosystem: [], contacts: [], contactRoles: [], sources: [] },
+    { id: "argentina", code: "AR", name: "Argentina", score: null, status: "queued", summary: "Queued for research.", tags: ["Queued"], operators: [], rails: [], ecosystem: [], contacts: [], contactRoles: [], sources: [] }
   ]
 };
