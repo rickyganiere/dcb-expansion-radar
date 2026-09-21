@@ -4,7 +4,7 @@ DCB Expansion Radar is a market-expansion intelligence workspace for DCB, VAS an
 
 ## Current phase
 
-Interactive MVP deployed on Cloudflare Workers Static Assets.
+Interactive MVP deployed on Cloudflare Workers Static Assets, with the backend standardized on Cloudflare D1.
 
 ### Live market intelligence
 - Mexico
@@ -18,22 +18,25 @@ Interactive MVP deployed on Cloudflare Workers Static Assets.
 - Search across markets, operators, rails, companies and decision-makers
 - Evidence/confidence model: verified / review / unknown
 - Billing-rail taxonomy instead of a simple DCB yes/no field
-- Market shortlist stored locally
+- Market shortlist
 - Compare up to three markets
 - Market drill-down
+- Transparent opportunity score model
 - Billing-route intelligence
 - Commercial target mapping
 - Named public professional decision-makers
 - First-touch outreach generator with copy action
-- Commercial pipeline with stages and CSV export
+- Commercial pipeline with stages, notes, follow-up dates and CSV export
+- Due/overdue follow-up alerts
 - Market signals feed
 - Recheck queue for incomplete or stale intelligence
-- Source Watch with per-source content fingerprints and local change detection
+- Source Watch with per-source content fingerprints and reviewable changes
 - Per-market commercial notes
-- Workspace backup/restore for local shortlist, pipeline, notes and source baselines
+- Workspace backup/restore
 - Shareable market deep links
-- Printable market report export (print / Save PDF)
-- Cloudflare API health/status/source-monitor endpoints
+- Printable market report export
+- D1 workspace sync client with conflict protection
+- Cloudflare API health/status/source-monitor/workspace endpoints
 - Responsive desktop/tablet/mobile UI
 
 ## Architecture
@@ -45,17 +48,21 @@ GitHub (source of truth)
 Cloudflare Worker
   |- Static Assets (public/)
   |- API routes (src/index.js)
+  |- Source Watch
+  |- Workspace API
         |
-        v
-Supabase (planned, schema ready)
-  |- Market intelligence
-  |- Signals
-  |- Contacts
-  |- User shortlist
-  |- Commercial pipeline
+        +----> Cloudflare D1
+        |       |- versioned workspace snapshot
+        |       |- source observations
+        |       |- app metadata
+        |
+        +----> Cloudflare Access
+                |- authenticated user identity
 ```
 
-Only one Cloudflare Worker is used for both the site and the API layer.
+The site and API share a single Worker. No Supabase dependency is required.
+
+The current market-intelligence dataset remains versioned in GitHub/static assets. D1 initially stores the personal workspace only: shortlist, compare state, pipeline, notes and Source Watch state. This keeps D1 usage extremely small and avoids duplicating data until automatic intelligence ingestion is introduced.
 
 ## Repository structure
 
@@ -69,6 +76,7 @@ public/
   scores.js
   app.js
   workspace-tools.js
+  d1-sync.js
   source-watch.js
   market-notes.js
   followup-alerts.js
@@ -76,13 +84,14 @@ public/
 src/
   index.js
   source-registry.js
+migrations/
+  0001_workspace.sql
 scripts/
   validate-data.mjs
+  validate-d1.mjs
   smoke-worker.mjs
 .github/workflows/
   validate.yml
-supabase/
-  schema.sql
 wrangler.jsonc
 README.md
 ```
@@ -102,21 +111,28 @@ The Worker serves assets from `./public/` and exposes:
 - `GET /api/status`
 - `GET /api/sources`
 - `GET /api/check-source?id=<source-id>`
+- `GET /api/workspace/status`
+- `GET /api/workspace`
+- `PUT /api/workspace`
 
-## Data model
+Workspace reads/writes are disabled unless:
+1. A D1 database is bound as `RADAR_DB`.
+2. Cloudflare Access authenticates the request.
 
-The backend schema is prepared in `supabase/schema.sql` for:
-- markets
-- operators
-- billing_rails
-- commercial_targets
-- contacts
-- market_signals
-- market_sources
-- shortlisted_markets
-- pipeline_items
+## D1 schema
 
-RLS is enabled in the prepared schema. Intelligence tables are authenticated-read only; shortlist and pipeline rows are user-owned.
+Migration `migrations/0001_workspace.sql` creates:
+- `workspace_state` — one versioned JSON workspace per authenticated user
+- `source_observations` — future persistent Source Watch history
+- `app_meta` — schema/application metadata
+
+Workspace writes use optimistic versioning. If two devices edit independently, a stale client receives `409 version_conflict` instead of silently overwriting the newer cloud workspace.
+
+## Cloudflare Access
+
+Workspace ownership comes from Cloudflare Access identity inside the Worker. The browser does not send or control the user ID used by D1.
+
+The public intelligence UI can continue to operate without D1. Workspace cloud persistence activates only once Access and the D1 binding are configured.
 
 ## Important product rule
 
@@ -133,14 +149,13 @@ The radar distinguishes:
 
 A public billing example does not automatically prove a merchant-ready integration API.
 
-## Next backend phase
+## Next backend steps
 
-1. Create a dedicated Supabase project (requires explicit account/cost confirmation).
-2. Apply and verify the schema.
-3. Seed the six current markets.
-4. Move shortlist and pipeline from localStorage to authenticated persistence.
-5. Move market intelligence from static JS to API-backed data.
-6. Persist Source Watch fingerprints and reviewed changes in Supabase.
-7. Add automated signal ingestion and stale-evidence checks.
-8. Add scheduled research/scanner jobs without adding a second Cloudflare Worker.
-9. Add authenticated team sync and replace local-only workspace state.
+1. Create the D1 database `dcb-expansion-radar`.
+2. Add the `RADAR_DB` binding to `wrangler.jsonc`.
+3. Apply `migrations/0001_workspace.sql` to the remote D1 database.
+4. Enable Cloudflare Access for the Worker/application.
+5. Verify workspace sync from two browser sessions.
+6. Persist Source Watch history in D1.
+7. Add scheduled source checks and automatic signal ingestion.
+8. Move dynamic market intelligence into D1 only when scanner-generated updates require it.
