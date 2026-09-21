@@ -1,4 +1,5 @@
 import { SOURCE_REGISTRY } from "./source-registry.js";
+import { getVerifiedAccessIdentity, enforcePinnedAudience } from "./access-auth.js";
 
 function json(data, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -57,18 +58,6 @@ async function inspectSource(id, entry) {
   };
 }
 
-async function getAccessIdentity(ctx) {
-  if (!ctx?.access) return null;
-  try {
-    const identity = await ctx.access.getIdentity();
-    const email = String(identity?.email || "").trim().toLowerCase();
-    if (!email) return null;
-    return { email };
-  } catch {
-    return null;
-  }
-}
-
 function cleanStringArray(value, maxItems = 100) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.map(v => String(v || "").trim()).filter(Boolean))].slice(0, maxItems);
@@ -99,7 +88,7 @@ function workspaceIsEmpty(workspace) {
     !Object.keys(workspace.sourceWatch).length;
 }
 
-async function requireWorkspaceContext(env, ctx) {
+async function requireWorkspaceContext(request, env, ctx) {
   if (!env.RADAR_DB) {
     return {
       response: json({
@@ -110,7 +99,7 @@ async function requireWorkspaceContext(env, ctx) {
     };
   }
 
-  const identity = await getAccessIdentity(ctx);
+  const identity = await getVerifiedAccessIdentity(request, env, ctx);
   if (!identity) {
     return {
       response: json({
@@ -121,11 +110,22 @@ async function requireWorkspaceContext(env, ctx) {
     };
   }
 
+  const audienceOk = await enforcePinnedAudience(env.RADAR_DB, identity);
+  if (!audienceOk) {
+    return {
+      response: json({
+        ok: false,
+        error: "access_audience_mismatch",
+        message: "Cloudflare Access audience validation failed."
+      }, { status: 403 })
+    };
+  }
+
   return { db: env.RADAR_DB, identity };
 }
 
-async function getWorkspace(env, ctx) {
-  const gate = await requireWorkspaceContext(env, ctx);
+async function getWorkspace(request, env, ctx) {
+  const gate = await requireWorkspaceContext(request, env, ctx);
   if (gate.response) return gate.response;
 
   const row = await gate.db
@@ -164,7 +164,7 @@ async function getWorkspace(env, ctx) {
 }
 
 async function putWorkspace(request, env, ctx) {
-  const gate = await requireWorkspaceContext(env, ctx);
+  const gate = await requireWorkspaceContext(request, env, ctx);
   if (gate.response) return gate.response;
 
   let body;
@@ -248,8 +248,8 @@ async function putWorkspace(request, env, ctx) {
   });
 }
 
-async function workspaceStatus(env, ctx) {
-  const identity = await getAccessIdentity(ctx);
+async function workspaceStatus(request, env, ctx) {
+  const identity = await getVerifiedAccessIdentity(request, env, ctx);
   return json({
     ok: true,
     database: env.RADAR_DB ? "d1" : "not-configured",
@@ -435,7 +435,7 @@ async function runAllSourceChecks(env, actor = "system") {
 }
 
 async function reviewSourceChange(request, env, ctx) {
-  const gate = await requireWorkspaceContext(env, ctx);
+  const gate = await requireWorkspaceContext(request, env, ctx);
   if (gate.response) return gate.response;
 
   let body;
@@ -514,7 +514,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/health") {
-      const identity = await getAccessIdentity(ctx);
+      const identity = await getVerifiedAccessIdentity(request, env, ctx);
       return json({
         ok: true,
         service: "dcb-expansion-radar",
@@ -531,11 +531,11 @@ export default {
     }
 
     if (url.pathname === "/api/workspace/status" && request.method === "GET") {
-      return workspaceStatus(env, ctx);
+      return workspaceStatus(request, env, ctx);
     }
 
     if (url.pathname === "/api/workspace" && request.method === "GET") {
-      return getWorkspace(env, ctx);
+      return getWorkspace(request, env, ctx);
     }
 
     if (url.pathname === "/api/workspace" && request.method === "PUT") {
@@ -570,7 +570,7 @@ export default {
     }
 
     if (url.pathname === "/api/source-watch/run" && request.method === "POST") {
-      const gate = await requireWorkspaceContext(env, ctx);
+      const gate = await requireWorkspaceContext(request, env, ctx);
       if (gate.response) return gate.response;
       return json(await runAllSourceChecks(env, gate.identity.email));
     }
@@ -581,7 +581,7 @@ export default {
         return json({ ok: false, error: "unknown_source" }, { status: 404 });
       }
 
-      const identity = await getAccessIdentity(ctx);
+      const identity = await getVerifiedAccessIdentity(request, env, ctx);
       if (env.RADAR_DB && !identity) {
         return json({
           ok: false,
@@ -607,7 +607,7 @@ export default {
     }
 
     if (url.pathname === "/api/status") {
-      const identity = await getAccessIdentity(ctx);
+      const identity = await getVerifiedAccessIdentity(request, env, ctx);
       return json({
         product: "DCB Expansion Radar",
         phase: env.RADAR_DB ? "d1-workspace" : "interactive-mvp",
