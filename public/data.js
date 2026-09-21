@@ -155,7 +155,49 @@ window.RADAR_DATA = {
         { label: "Movistar TV App", url: "https://www.movistar.com.pe/movistar-tv-app/registro/terminos-y-condiciones" }
       ]
     },
-    { id: "chile", code: "CL", name: "Chile", score: null, status: "queued", summary: "Queued for research.", tags: ["Queued"], operators: [], rails: [], ecosystem: [], contacts: [], contactRoles: [], sources: [] },
+    {
+      id: "chile",
+      code: "CL",
+      name: "Chile",
+      score: 89,
+      status: "live",
+      summary: "Highly competitive mobile market with current Google Play carrier billing across all four major operators and strong operator-billed entertainment/VAS distribution.",
+      tags: ["4-carrier DCB", "OTT billing", "VAS"],
+      operators: [
+        { name: "Entel", group: "Entel", share: 34.3, rail: "App-store DCB + OTT invoice", confidence: "verified", note: "Google Play lists Entel for carrier billing; Entel also bills Netflix, Disney+, HBO Max, Prime Video, Spotify, YouTube Premium and other services through the monthly bill." },
+        { name: "Movistar Chile", group: "Telefónica", share: 22.8, rail: "App-store DCB", confidence: "verified", note: "Google Play currently lists Movistar as a participating carrier in Chile." },
+        { name: "ClaroVTR", group: "América Móvil / Liberty Latin America", share: 21.6, rail: "App-store DCB", confidence: "verified", note: "Google Play currently lists Claro as a participating carrier in Chile." },
+        { name: "WOM Chile", group: "WOM", share: 20.4, rail: "App-store DCB + postpaid/prepaid VAS", confidence: "verified", note: "Google Play lists WOM; WOM also documents bill charging for Spotify, Prime Video, Zapping, MegaGO and other value-added services, with selected prepaid options." }
+      ],
+      rails: [
+        { type: "App-store DCB", provider: "Entel", confidence: "verified", evidence: "Google Play Chile" },
+        { type: "App-store DCB", provider: "Claro", confidence: "verified", evidence: "Google Play Chile" },
+        { type: "App-store DCB", provider: "Movistar", confidence: "verified", evidence: "Google Play Chile" },
+        { type: "App-store DCB", provider: "WOM", confidence: "verified", evidence: "Google Play Chile" },
+        { type: "Operator invoice / OTT", provider: "Entel", confidence: "verified", evidence: "Entel entertainment and billing documentation" },
+        { type: "Postpaid invoice / prepaid balance VAS", provider: "WOM", confidence: "verified", evidence: "WOM SVA and help-center documentation" }
+      ],
+      ecosystem: [
+        { company: "Entel", role: "DCB / entertainment billing", status: "Verified" },
+        { company: "WOM Chile", role: "DCB / VAS / OTT billing", status: "Verified" },
+        { company: "Movistar Chile", role: "App-store DCB / operator distribution", status: "Verified DCB" },
+        { company: "ClaroVTR", role: "App-store DCB / converged operator", status: "Verified DCB" }
+      ],
+      contacts: [
+        { name: "Onaisin Somlai", company: "Entel", title: "Subgerente Desarrollo de Negocios", location: "Santiago", source: "Public professional profile", url: "https://www.linkedin.com/in/onaisin-somlai-1b493a8/" },
+        { name: "Daniele Aresu Vaccari", company: "Entel", title: "Strategic Innovation Lead", location: "Chile", source: "Public professional profile", url: "https://www.linkedin.com/in/daniele-aresu-vaccari/" },
+        { name: "Roberto Verdugo Muller", company: "WOM Chile", title: "Senior Project Manager Core / VAS", location: "Chile", source: "Public professional profile", url: "https://www.linkedin.com/in/robertoverdugomuller/" },
+        { name: "Angela Paula Salinas Venegas", company: "WOM Chile", title: "Ejecutivo de desarrollo del negocio", location: "Chile", source: "Public professional profile", url: "https://www.linkedin.com/in/angelapsalinasv/" },
+        { name: "Michael Ross Valle", company: "WOM Chile", title: "Jefe CS Core & VAS", location: "Chile", source: "Public professional profile", url: "https://www.linkedin.com/in/michael-ross-valle-a0371037/" }
+      ],
+      contactRoles: ["VAS", "Digital Services", "Entertainment Partnerships", "Business Development"],
+      sources: [
+        { label: "SUBTEL H1 2026 market", url: "https://www.subtel.gob.cl/estadisticas-1o-semestre-subtel-el-5g-avanza-a-paso-firme-para-alcanzar-al-4g-y-brecha-se-reduce-a-solo-627-mil-conexiones/" },
+        { label: "Google Play Chile", url: "https://support.google.com/googleplay/answer/2651410?co=GENIE.CountryCode%3DCL&hl=es" },
+        { label: "Entel entertainment billing", url: "https://ayuda.entel.cl/hc/es-419/articles/1500003817262--Qu%C3%A9-servicios-de-entretenci%C3%B3n-puedo-contratar" },
+        { label: "WOM additional services", url: "https://www.wom.cl/centro-de-ayuda/por-que-subio-el-monto-de-mi-boleta-cobros-extra-mas-comunes/" }
+      ]
+    },
     { id: "argentina", code: "AR", name: "Argentina", score: null, status: "queued", summary: "Queued for research.", tags: ["Queued"], operators: [], rails: [], ecosystem: [], contacts: [], contactRoles: [], sources: [] }
   ]
 };
