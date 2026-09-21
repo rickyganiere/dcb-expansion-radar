@@ -5,7 +5,8 @@
     query: "",
     filter: "all",
     compare: new Set(JSON.parse(localStorage.getItem("dcb_compare") || "[]")),
-    shortlist: new Set(JSON.parse(localStorage.getItem("dcb_shortlist") || "[]"))
+    shortlist: new Set(JSON.parse(localStorage.getItem("dcb_shortlist") || "[]")),
+    pipeline: JSON.parse(localStorage.getItem("dcb_pipeline") || "{}")
   };
 
   const $ = (s, root=document) => root.querySelector(s);
@@ -15,6 +16,7 @@
   function persist() {
     localStorage.setItem("dcb_compare", JSON.stringify([...state.compare]));
     localStorage.setItem("dcb_shortlist", JSON.stringify([...state.shortlist]));
+    localStorage.setItem("dcb_pipeline", JSON.stringify(state.pipeline));
   }
 
   function confidenceLabel(c) {
@@ -77,12 +79,19 @@
     }).join("") || `<div class="empty card">No markets match this search/filter.</div>`;
     renderCompareTray();
     renderShortlistCount();
+    renderPipelineCount();
   }
 
   function renderShortlistCount() {
     const el = $("#shortlistCount");
     if (el) el.textContent = state.shortlist.size;
   }
+
+  function renderPipelineCount() {
+    const el = $("#pipelineCount");
+    if (el) el.textContent = Object.keys(state.pipeline).length;
+  }
+
 
   function renderCompareTray() {
     const tray = $("#compareTray");
@@ -176,7 +185,7 @@
           <td>${esc(p.company)}</td>
           <td>${esc(p.title)}</td>
           <td>${esc(p.location)}</td>
-          <td><a class="btn tiny profileLink" href="${esc(p.url)}" target="_blank" rel="noreferrer">Profile ↗</a></td>
+          <td><div class="rowActions"><button class="btn tiny" data-pipeline-contact="${esc(p.name)}" data-company="${esc(p.company)}" data-title="${esc(p.title)}" data-market-id="${esc(m.id)}">+ Pipeline</button><a class="btn tiny profileLink" href="${esc(p.url)}" target="_blank" rel="noreferrer">Profile ↗</a></div></td>
         </tr>`).join("") || `<tr><td colspan="5">No named decision-makers mapped yet.</td></tr>`}
       </tbody></table></div>`;
   }
@@ -184,7 +193,7 @@
   function targetRow(m,e) {
     return `<tr data-target-row data-search="${esc((e.company+" "+e.role+" "+e.status).toLowerCase())}">
       <td><strong>${esc(e.company)}</strong></td><td>${esc(e.role)}</td><td><span class="status">${esc(e.status)}</span></td>
-      <td><button class="btn tiny outreach-target" data-company="${esc(e.company)}" data-role="${esc(e.role)}">Write outreach</button></td>
+      <td><div class="rowActions"><button class="btn tiny" data-pipeline-company="${esc(e.company)}" data-market-id="${esc(m.id)}" data-role="${esc(e.role)}">+ Pipeline</button><button class="btn tiny outreach-target" data-company="${esc(e.company)}" data-role="${esc(e.role)}">Write outreach</button></div></td>
     </tr>`;
   }
 
@@ -250,6 +259,82 @@
     URL.revokeObjectURL(a.href);
   }
 
+
+  function addPipeline(entry) {
+    const key = entry.key;
+    state.pipeline[key] = {
+      ...entry,
+      status: state.pipeline[key]?.status || "New",
+      updatedAt: new Date().toISOString()
+    };
+    persist();
+    renderPipelineCount();
+  }
+
+  function openPipeline() {
+    const entries = Object.values(state.pipeline);
+    const body = $("#modalBody");
+    body.innerHTML = `
+      <div class="eyebrow">Commercial workspace</div>
+      <h2>Pipeline</h2>
+      <p class="lede">Targets saved from market intelligence. This version is stored locally on this device.</p>
+      <div class="targetTools">
+        <button class="btn ghost" id="exportPipeline">Export CSV</button>
+      </div>
+      <div class="card tableWrap pipelineTable">
+        <table>
+          <thead><tr><th>Target</th><th>Market</th><th>Company</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            ${entries.map(e => `<tr>
+              <td><strong>${esc(e.name)}</strong><br><small>${esc(e.title || e.role || e.type || "")}</small></td>
+              <td>${esc(data.markets.find(m=>m.id===e.marketId)?.name || e.marketId)}</td>
+              <td>${esc(e.company || e.name)}</td>
+              <td>
+                <select class="input pipeStatus" data-pipe-key="${esc(e.key)}">
+                  ${["New","Researching","Contacted","Follow-up","Partnering","Closed"].map(s => `<option ${s===e.status?"selected":""}>${s}</option>`).join("")}
+                </select>
+              </td>
+              <td><button class="btn tiny pipeRemove" data-pipe-key="${esc(e.key)}">Remove</button></td>
+            </tr>`).join("") || `<tr><td colspan="5">Nothing in pipeline yet. Add a company or decision-maker from a market.</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+    $("#modal").showModal();
+    $$(".pipeStatus", body).forEach(sel => sel.addEventListener("change", () => {
+      const key = sel.dataset.pipeKey;
+      if (state.pipeline[key]) {
+        state.pipeline[key].status = sel.value;
+        state.pipeline[key].updatedAt = new Date().toISOString();
+        persist();
+      }
+    }));
+    $$(".pipeRemove", body).forEach(btn => btn.addEventListener("click", () => {
+      delete state.pipeline[btn.dataset.pipeKey];
+      persist();
+      renderPipelineCount();
+      openPipeline();
+    }));
+    $("#exportPipeline", body)?.addEventListener("click", exportPipeline);
+  }
+
+  function exportPipeline() {
+    const entries = Object.values(state.pipeline);
+    const rows = [["Target","Market","Company","Title/Role","Status"], ...entries.map(e => [
+      e.name,
+      data.markets.find(m=>m.id===e.marketId)?.name || e.marketId,
+      e.company || e.name,
+      e.title || e.role || "",
+      e.status
+    ])];
+    const csv = rows.map(r => r.map(v => '"'+String(v ?? "").replace(/"/g,'""')+'"').join(",")).join("\n");
+    const blob = new Blob([csv], {type:"text/csv"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "dcb-expansion-radar-pipeline.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   function openCompare() {
     const ms = [...state.compare].map(id => data.markets.find(m=>m.id===id)).filter(Boolean).slice(0,3);
     if (!ms.length) return;
@@ -285,6 +370,34 @@
         state.shortlist.has(id) ? state.shortlist.delete(id) : state.shortlist.add(id);
         persist(); renderMarkets();
       }
+      const pipeContact = e.target.closest("[data-pipeline-contact]");
+      if (pipeContact) {
+        const marketId = pipeContact.dataset.marketId;
+        const name = pipeContact.dataset.pipelineContact;
+        addPipeline({
+          key: "contact::"+marketId+"::"+name,
+          type: "Contact",
+          marketId,
+          name,
+          company: pipeContact.dataset.company,
+          title: pipeContact.dataset.title
+        });
+        pipeContact.textContent = "✓ Added";
+      }
+      const pipeCompany = e.target.closest("[data-pipeline-company]");
+      if (pipeCompany) {
+        const marketId = pipeCompany.dataset.marketId;
+        const company = pipeCompany.dataset.pipelineCompany;
+        addPipeline({
+          key: "company::"+marketId+"::"+company,
+          type: "Company",
+          marketId,
+          name: company,
+          company,
+          role: pipeCompany.dataset.role
+        });
+        pipeCompany.textContent = "✓ Added";
+      }
       const comp = e.target.closest("[data-compare]");
       if (comp) {
         const id = comp.dataset.compare;
@@ -296,6 +409,7 @@
         persist(); renderMarkets();
       }
     });
+    $("#openPipeline")?.addEventListener("click", openPipeline);
     $("#openShortlist")?.addEventListener("click", () => {
       state.filter = "shortlist";
       $$(".filterBtn").forEach(b => b.classList.toggle("active", b.dataset.filter === "shortlist"));
