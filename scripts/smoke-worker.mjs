@@ -380,6 +380,59 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
 }
 
 {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    if (attempts < 3) {
+      return new Response("rate limited", {
+        status: 429,
+        headers: { "retry-after": "0" }
+      });
+    }
+    return new Response("<html><title>Recovered source</title><body>Stable content</body></html>", {
+      status: 200,
+      headers: { "content-type": "text/html" }
+    });
+  };
+
+  try {
+    const response = await call("/api/check-source?id=mx-google-play");
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.status, 200);
+    assert.equal(attempts, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+{
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    return new Response("still rate limited", {
+      status: 429,
+      headers: { "retry-after": "0" }
+    });
+  };
+
+  try {
+    const response = await call("/api/check-source?id=mx-google-play");
+    assert.equal(response.status, 502);
+    const payload = await response.json();
+    assert.equal(payload.error, "source_check_failed");
+    assert.match(payload.detail, /HTTP 429/);
+    assert.equal(attempts, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+
+{
   const response = await call("/api/not-real");
   assert.equal(response.status, 404);
 }
@@ -396,5 +449,6 @@ console.log("Worker smoke tests passed:", {
   d1Workspace: true,
   optimisticConcurrency: true,
   automationHealth: true,
-  discoveryInbox: true
+  discoveryInbox: true,
+  rateLimitRetry: true
 });
