@@ -1,5 +1,5 @@
 (() => {
-  const STORAGE_KEYS = ["dcb_compare", "dcb_shortlist", "dcb_pipeline"];
+  const STORAGE_KEYS = ["dcb_compare", "dcb_shortlist", "dcb_pipeline", "dcb_source_watch_v1", "dcb_market_notes_v1"];
 
   function download(name, text, type) {
     const blob = new Blob([text], { type: type || "application/json" });
@@ -35,8 +35,9 @@
       data: {}
     };
     for (const key of STORAGE_KEYS) {
-      try { payload.data[key] = JSON.parse(localStorage.getItem(key) || (key === "dcb_pipeline" ? "{}" : "[]")); }
-      catch { payload.data[key] = key === "dcb_pipeline" ? {} : []; }
+      const objectKey = key === "dcb_pipeline" || key === "dcb_source_watch_v1" || key === "dcb_market_notes_v1";
+      try { payload.data[key] = JSON.parse(localStorage.getItem(key) || (objectKey ? "{}" : "[]")); }
+      catch { payload.data[key] = objectKey ? {} : []; }
     }
     download("dcb-expansion-radar-workspace.json", JSON.stringify(payload, null, 2));
     toast("Workspace backup exported");
@@ -57,6 +58,14 @@
         localStorage.setItem("dcb_compare", JSON.stringify(compare));
         localStorage.setItem("dcb_shortlist", JSON.stringify(shortlist));
         localStorage.setItem("dcb_pipeline", JSON.stringify(pipeline));
+        const sourceWatch = payload.data.dcb_source_watch_v1;
+        const marketNotes = payload.data.dcb_market_notes_v1;
+        if (sourceWatch && typeof sourceWatch === "object" && !Array.isArray(sourceWatch)) {
+          localStorage.setItem("dcb_source_watch_v1", JSON.stringify(sourceWatch));
+        }
+        if (marketNotes && typeof marketNotes === "object" && !Array.isArray(marketNotes)) {
+          localStorage.setItem("dcb_market_notes_v1", JSON.stringify(marketNotes));
+        }
         toast("Workspace restored");
         setTimeout(() => location.reload(), 450);
       } catch (err) {
@@ -82,7 +91,7 @@
     panel.className = "card workspaceTools";
     panel.innerHTML =
       '<div><div class="eyebrow">Local workspace safety</div><h3>Backup before Supabase sync</h3>' +
-      '<p>Shortlist, compare selections and pipeline are currently stored on this device. Export a backup anytime or restore it on another browser.</p></div>' +
+      '<p>Shortlist, compare selections, pipeline, market notes and Source Watch baselines are currently stored on this device. Export a backup anytime or restore it on another browser.</p></div>' +
       '<div class="workspaceActions">' +
       '<button class="btn primary" id="exportWorkspace" type="button">Export workspace</button>' +
       '<button class="btn ghost" id="importWorkspaceBtn" type="button">Restore backup</button>' +
