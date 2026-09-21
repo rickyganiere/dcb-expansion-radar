@@ -26,7 +26,8 @@
     const hay = [
       m.name, m.code, m.summary, ...(m.tags || []),
       ...(m.operators || []).flatMap(o => [o.name,o.group,o.rail,o.note]),
-      ...(m.ecosystem || []).flatMap(e => [e.company,e.role,e.status])
+      ...(m.ecosystem || []).flatMap(e => [e.company,e.role,e.status]),
+      ...(m.contacts || []).flatMap(p => [p.name,p.company,p.title,p.location])
     ].join(" ").toLowerCase();
     const qOk = !q || hay.includes(q);
     if (!qOk) return false;
@@ -162,11 +163,21 @@
   function renderTargets(m) {
     return `
       <div class="targetTools">
-        <input id="targetSearch" class="input" placeholder="Filter companies or roles">
+        <input id="targetSearch" class="input" placeholder="Filter companies, contacts or roles">
         <button class="btn ghost" id="exportTargets">Export CSV</button>
       </div>
       <div class="card tableWrap"><table><thead><tr><th>Company</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody id="targetRows">
         ${m.ecosystem.map(e => targetRow(m,e)).join("")}
+      </tbody></table></div>
+      <div class="sectionHeader compact"><div><h3>Decision-makers</h3><p>Public professional profiles found for relevant commercial and digital roles.</p></div></div>
+      <div class="card tableWrap"><table><thead><tr><th>Name</th><th>Company</th><th>Title</th><th>Location</th><th></th></tr></thead><tbody>
+        ${(m.contacts || []).map(p => `<tr data-target-row data-search="${esc((p.name+" "+p.company+" "+p.title+" "+p.location).toLowerCase())}">
+          <td><strong>${esc(p.name)}</strong></td>
+          <td>${esc(p.company)}</td>
+          <td>${esc(p.title)}</td>
+          <td>${esc(p.location)}</td>
+          <td><a class="btn tiny profileLink" href="${esc(p.url)}" target="_blank" rel="noreferrer">Profile ↗</a></td>
+        </tr>`).join("") || `<tr><td colspan="5">No named decision-makers mapped yet.</td></tr>`}
       </tbody></table></div>`;
   }
 
