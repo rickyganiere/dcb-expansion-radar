@@ -2,7 +2,7 @@ name: Validate Radar
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feature/**"]
   pull_request:
 
 permissions:
@@ -36,6 +36,8 @@ jobs:
           node --check public/followup-alerts.js
           node --check public/market-report.js
           node --check public/d1-sync.js
+          node --check public/automation-health.js
+          node --check public/discovery-inbox.js
           node --check src/source-registry.js
           node --check src/access-auth.js
           node --check src/index.js
@@ -53,3 +55,7 @@ jobs:
           test -f public/styles.css
           test -f wrangler.jsonc
           test -f migrations/0001_workspace.sql
+          test -f migrations/0002_source_watch.sql
+          test -f migrations/0003_discovery_inbox.sql
+          test -f public/automation-health.js
+          test -f public/discovery-inbox.js
