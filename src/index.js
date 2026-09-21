@@ -425,13 +425,27 @@ async function runAllSourceChecks(env, actor = "system") {
     }
   }
 
-  return {
+  const summary = {
     ok: failed === 0,
     checked,
     changed,
     failed,
-    completedAt: new Date().toISOString()
+    completedAt: new Date().toISOString(),
+    actor
   };
+
+  await env.RADAR_DB.batch([
+    env.RADAR_DB.prepare(`INSERT INTO app_meta (key, value, updated_at)
+      VALUES ('last_source_watch_run', ?1, ?1)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+      .bind(summary.completedAt),
+    env.RADAR_DB.prepare(`INSERT INTO app_meta (key, value, updated_at)
+      VALUES ('last_source_watch_summary', ?1, ?2)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+      .bind(JSON.stringify(summary), summary.completedAt)
+  ]);
+
+  return summary;
 }
 
 async function reviewSourceChange(request, env, ctx) {
@@ -608,10 +622,31 @@ export default {
 
     if (url.pathname === "/api/status") {
       const identity = await getVerifiedAccessIdentity(request, env, ctx);
+      let lastSourceWatchRun = null;
+      let lastSourceWatchSummary = null;
+
+      if (env.RADAR_DB && identity) {
+        const [runRow, summaryRow] = await Promise.all([
+          env.RADAR_DB.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_run' LIMIT 1").first(),
+          env.RADAR_DB.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_summary' LIMIT 1").first()
+        ]);
+        lastSourceWatchRun = runRow?.value || null;
+        try {
+          lastSourceWatchSummary = summaryRow?.value ? JSON.parse(summaryRow.value) : null;
+        } catch {
+          lastSourceWatchSummary = null;
+        }
+      }
+
       return json({
         product: "DCB Expansion Radar",
         phase: env.RADAR_DB ? "d1-workspace" : "interactive-mvp",
         markets: 6,
+        automation: {
+          sourceWatchCron: "0 6,18 * * *",
+          lastSourceWatchRun,
+          lastSourceWatchSummary
+        },
         capabilities: [
           "market-search",
           "market-filters",
