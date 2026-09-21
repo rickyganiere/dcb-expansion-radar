@@ -35,6 +35,8 @@ jobs:
           node --check public/market-notes.js
           node --check public/followup-alerts.js
           node --check public/market-report.js
+          node --check public/cloud-ui.js
+          node --check public/cloud-sync.js
           node --check src/source-registry.js
           node --check src/index.js
           node --check scripts/generate-seed.mjs
