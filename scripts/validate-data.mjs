@@ -12,6 +12,7 @@ function loadWindowScript(path, property) {
 const data = loadWindowScript("public/data.js", "RADAR_DATA");
 const signals = loadWindowScript("public/signals.js", "RADAR_SIGNALS");
 const partners = loadWindowScript("public/partners.js", "RADAR_PARTNERS");
+const scoreModel = loadWindowScript("public/scores.js", "RADAR_SCORES");
 
 const errors = [];
 const allowedConfidence = new Set(["verified", "review", "unknown"]);
@@ -60,6 +61,23 @@ for (const signal of signals) {
   if (!/^https:\/\//.test(signal.sourceUrl || "")) errors.push(`${signal.id}: invalid source URL`);
 }
 
+for (const market of live) {
+  const scoreValues = scoreModel.markets?.[market.id];
+  if (!scoreValues) {
+    errors.push(`${market.id}: missing score breakdown`);
+    continue;
+  }
+  const componentValues = scoreModel.components.map(component => scoreValues[component.key]);
+  if (componentValues.some(value => !Number.isFinite(value) || value < 0 || value > 100)) {
+    errors.push(`${market.id}: invalid score component`);
+    continue;
+  }
+  const calculated = Math.round(componentValues.reduce((sum, value) => sum + value, 0) / componentValues.length);
+  if (calculated !== market.score) {
+    errors.push(`${market.id}: score breakdown average ${calculated} does not match market score ${market.score}`);
+  }
+}
+
 const partnerIds = new Set();
 for (const partner of partners) {
   if (partnerIds.has(partner.id)) errors.push(`Duplicate partner id: ${partner.id}`);
@@ -82,7 +100,8 @@ const totals = {
   contacts: live.reduce((n,m) => n + (m.contacts?.length || 0), 0),
   signals: signals.length,
   partners: partners.length,
-  partnerRoutes: partners.reduce((n,p) => n + (p.routes?.length || 0), 0)
+  partnerRoutes: partners.reduce((n,p) => n + (p.routes?.length || 0), 0),
+  scoreComponents: scoreModel.components.length
 };
 
 console.log("DCB Expansion Radar data totals:", totals);
