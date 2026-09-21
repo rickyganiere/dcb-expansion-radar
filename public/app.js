@@ -160,8 +160,8 @@
       <div class="operatorGrid modalGrid">
         ${m.operators.map(o => `
           <article class="card operatorCard">
-            <div class="operatorHead"><div><h3>${esc(o.name)}</h3><span>${esc(o.group)}</span></div><b>${o.share}%</b></div>
-            <div class="progress"><span style="width:${Math.min(o.share,100)}%"></span></div>
+            <div class="operatorHead"><div><h3>${esc(o.name)}</h3><span>${esc(o.group)}</span></div><b>${Number.isFinite(o.share) ? o.share+"%" : "—"}</b></div>
+            <div class="progress"><span style="width:${Number.isFinite(o.share) ? Math.min(o.share,100) : 0}%"></span></div>
             <span class="confidence ${esc(o.confidence)}">${confidenceLabel(o.confidence)}</span>
             <p><strong>${esc(o.rail)}</strong><br>${esc(o.note)}</p>
           </article>`).join("")}
