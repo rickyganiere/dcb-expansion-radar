@@ -1,0 +1,40 @@
+name: Validate Radar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate intelligence data
+        run: node scripts/validate-data.mjs
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check public/data.js
+          node --check public/signals.js
+          node --check public/partners.js
+          node --check public/scores.js
+          node --check public/app.js
+          node --check public/workspace-tools.js
+          node --check src/index.js
+
+      - name: Check required static assets
+        run: |
+          test -f public/index.html
+          test -f public/styles.css
+          test -f wrangler.jsonc
