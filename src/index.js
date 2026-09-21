@@ -364,6 +364,24 @@ async function persistSourceSuccess(db, result, actor = "system") {
     await historyStatement.run();
   }
 
+  if (changed) {
+    await db.prepare(`INSERT INTO discovery_candidates (
+        source_id, market_id, candidate_type, content_hash,
+        title, summary, source_url, status, detected_at, updated_at
+      ) VALUES (?1, ?2, 'source_change', ?3, ?4, ?5, ?6, 'pending', ?7, ?7)
+      ON CONFLICT(source_id, content_hash) DO NOTHING`)
+      .bind(
+        result.id,
+        result.marketId,
+        result.hash,
+        result.title || result.label,
+        result.label + " changed compared with the reviewed baseline. Review the source before updating market intelligence.",
+        result.url,
+        now
+      )
+      .run();
+  }
+
   await db.prepare(`DELETE FROM source_watch_history
     WHERE source_id = ?1
       AND id NOT IN (
@@ -563,7 +581,8 @@ async function automationHealth(request, env, ctx) {
       SUM(CASE WHEN checked_at IS NOT NULL AND checked_at < datetime('now','-36 hours') THEN 1 ELSE 0 END) AS stale
     FROM source_watch_state`).first(),
     gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_run' LIMIT 1").first(),
-    gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_summary' LIMIT 1").first()
+    gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_summary' LIMIT 1").first(),
+    gate.db.prepare("SELECT COUNT(*) AS pending FROM discovery_candidates WHERE status = 'pending'").first()
   ]);
 
   let lastSummary = null;
@@ -587,7 +606,110 @@ async function automationHealth(request, env, ctx) {
       unchecked: Number(counts?.unchecked || 0),
       rateLimited: Number(counts?.rate_limited || 0),
       stale: Number(counts?.stale || 0)
+    },
+    discovery: {
+      pending: Number(discoveryRow?.pending || 0)
     }
+  });
+}
+
+async function discoveryInbox(request, env, ctx, url) {
+  const gate = await requireWorkspaceContext(request, env, ctx);
+  if (gate.response) return gate.response;
+
+  const requestedStatus = String(url.searchParams.get("status") || "pending");
+  const status = ["pending", "accepted", "dismissed", "all"].includes(requestedStatus)
+    ? requestedStatus
+    : "pending";
+
+  const sql = status === "all"
+    ? `SELECT id, source_id, market_id, candidate_type, content_hash,
+        title, summary, source_url, status, detected_at,
+        reviewed_at, reviewed_by, review_note
+       FROM discovery_candidates
+       ORDER BY detected_at DESC, id DESC
+       LIMIT 100`
+    : `SELECT id, source_id, market_id, candidate_type, content_hash,
+        title, summary, source_url, status, detected_at,
+        reviewed_at, reviewed_by, review_note
+       FROM discovery_candidates
+       WHERE status = ?1
+       ORDER BY detected_at DESC, id DESC
+       LIMIT 100`;
+
+  const statement = gate.db.prepare(sql);
+  const result = status === "all"
+    ? await statement.all()
+    : await statement.bind(status).all();
+
+  const counts = await gate.db.prepare(`SELECT
+      SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) AS accepted,
+      SUM(CASE WHEN status = 'dismissed' THEN 1 ELSE 0 END) AS dismissed
+    FROM discovery_candidates`).first();
+
+  return json({
+    ok: true,
+    status,
+    counts: {
+      pending: Number(counts?.pending || 0),
+      accepted: Number(counts?.accepted || 0),
+      dismissed: Number(counts?.dismissed || 0)
+    },
+    candidates: result?.results || []
+  });
+}
+
+async function reviewDiscoveryCandidate(request, env, ctx) {
+  const gate = await requireWorkspaceContext(request, env, ctx);
+  if (gate.response) return gate.response;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ ok: false, error: "invalid_json" }, { status: 400 });
+  }
+
+  const id = Number(body?.id);
+  const action = String(body?.action || "");
+  const note = String(body?.note || "").slice(0, 800);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return json({ ok: false, error: "invalid_candidate_id" }, { status: 400 });
+  }
+
+  if (!["accept", "dismiss", "reopen"].includes(action)) {
+    return json({ ok: false, error: "unsupported_review_action" }, { status: 400 });
+  }
+
+  const nextStatus = action === "accept"
+    ? "accepted"
+    : action === "dismiss"
+      ? "dismissed"
+      : "pending";
+
+  const now = new Date().toISOString();
+  const result = await gate.db.prepare(`UPDATE discovery_candidates
+    SET status = ?1,
+        reviewed_at = ?2,
+        reviewed_by = ?3,
+        review_note = ?4,
+        updated_at = ?2
+    WHERE id = ?5`)
+    .bind(nextStatus, now, gate.identity.email, note, id)
+    .run();
+
+  if ((result?.meta?.changes || 0) !== 1) {
+    return json({ ok: false, error: "candidate_not_found" }, { status: 404 });
+  }
+
+  return json({
+    ok: true,
+    id,
+    status: nextStatus,
+    reviewedAt: now,
+    reviewedBy: gate.identity.email
   });
 }
 
@@ -713,6 +835,14 @@ export default {
 
     if (url.pathname === "/api/automation/health" && request.method === "GET") {
       return automationHealth(request, env, ctx);
+    }
+
+    if (url.pathname === "/api/discovery/inbox" && request.method === "GET") {
+      return discoveryInbox(request, env, ctx, url);
+    }
+
+    if (url.pathname === "/api/discovery/review" && request.method === "POST") {
+      return reviewDiscoveryCandidate(request, env, ctx);
     }
 
     if (url.pathname === "/api/source-watch/state" && request.method === "GET") {
