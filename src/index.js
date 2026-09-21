@@ -26,8 +26,21 @@ async function sha256(text) {
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+const hostReadyAt = new Map();
+
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function waitForHostSlot(url) {
+  const host = new URL(url).hostname;
+  const now = Date.now();
+  const readyAt = hostReadyAt.get(host) || 0;
+  const startAt = Math.max(now, readyAt);
+  hostReadyAt.set(host, startAt + 900);
+
+  const delay = startAt - now;
+  if (delay > 0) await wait(delay);
 }
 
 function retryDelayMs(response, attempt) {
@@ -41,6 +54,7 @@ async function fetchMonitoredSource(url) {
   let lastResponse = null;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    await waitForHostSlot(url);
     const response = await fetch(url, {
       redirect: "follow",
       headers: {
@@ -938,7 +952,9 @@ export default {
           "source-watch",
           "source-watch-history",
           "d1-workspace-sync",
-          "scheduled-source-checks-ready"
+          "scheduled-source-checks-ready",
+          "automation-health",
+          "discovery-inbox"
         ],
         nextBackendStep: !env.RADAR_DB
           ? "bind-d1-database"
