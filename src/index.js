@@ -584,7 +584,7 @@ async function automationHealth(request, env, ctx) {
   const gate = await requireWorkspaceContext(request, env, ctx);
   if (gate.response) return gate.response;
 
-  const [counts, runRow, summaryRow] = await Promise.all([
+  const [counts, runRow, summaryRow, discoveryRow] = await Promise.all([
     gate.db.prepare(`SELECT
       COUNT(*) AS total,
       SUM(CASE WHEN last_hash IS NOT NULL AND last_error IS NULL AND changed = 0 THEN 1 ELSE 0 END) AS healthy,
@@ -592,7 +592,7 @@ async function automationHealth(request, env, ctx) {
       SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS failed,
       SUM(CASE WHEN checked_at IS NULL THEN 1 ELSE 0 END) AS unchecked,
       SUM(CASE WHEN last_http_status = 429 THEN 1 ELSE 0 END) AS rate_limited,
-      SUM(CASE WHEN checked_at IS NOT NULL AND checked_at < datetime('now','-36 hours') THEN 1 ELSE 0 END) AS stale
+      SUM(CASE WHEN checked_at IS NOT NULL AND julianday(checked_at) < julianday('now','-36 hours') THEN 1 ELSE 0 END) AS stale
     FROM source_watch_state`).first(),
     gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_run' LIMIT 1").first(),
     gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_summary' LIMIT 1").first(),
