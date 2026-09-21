@@ -198,6 +198,42 @@ window.RADAR_DATA = {
         { label: "WOM additional services", url: "https://www.wom.cl/centro-de-ayuda/por-que-subio-el-monto-de-mi-boleta-cobros-extra-mas-comunes/" }
       ]
     },
-    { id: "argentina", code: "AR", name: "Argentina", score: null, status: "queued", summary: "Queued for research.", tags: ["Queued"], operators: [], rails: [], ecosystem: [], contacts: [], contactRoles: [], sources: [] }
+    {
+      id: "argentina",
+      code: "AR",
+      name: "Argentina",
+      score: 78,
+      status: "live",
+      summary: "Large mobile and entertainment market with verified operator-invoiced OTT and digital-service charging, while a current generic app-store DCB route remains unverified in this research pass.",
+      tags: ["Operator billing", "OTT", "DCB recheck"],
+      operators: [
+        { name: "Personal / Flow", group: "Telecom Argentina", share: null, rail: "Operator OTT / digital-service billing", confidence: "verified", note: "Telecom Argentina currently invoices Disney+ on behalf of Disney for Flow customers, and Flow distributes multiple premium streaming products." },
+        { name: "Movistar Argentina", group: "Movistar", share: null, rail: "Digital services on operator invoice", confidence: "verified", note: "Movistar documents on-demand and subscription digital services such as games, music and video as charges that appear on the mobile bill." },
+        { name: "Claro Argentina", group: "América Móvil", share: null, rail: "Operator OTT subscription billing", confidence: "verified", note: "Claro currently allows eligible customers to add Prime Video as a recurring charge on the Claro invoice." }
+      ],
+      rails: [
+        { type: "Operator invoice / OTT", provider: "Personal / Flow", confidence: "verified", evidence: "Current Disney+ / Flow commercial terms" },
+        { type: "Digital-service billing", provider: "Movistar Argentina", confidence: "verified", evidence: "Current Movistar billing help documentation" },
+        { type: "Operator invoice / OTT", provider: "Claro Argentina", confidence: "verified", evidence: "Current Prime Video subscription terms" },
+        { type: "App-store DCB", provider: "Argentina market", confidence: "unknown", evidence: "No current operator-specific Google Play DCB route validated in this pass" }
+      ],
+      ecosystem: [
+        { company: "Personal / Flow", role: "OTT aggregation / operator billing", status: "Verified" },
+        { company: "Movistar Argentina", role: "Digital-service billing", status: "Verified" },
+        { company: "Claro Argentina", role: "OTT subscription billing", status: "Verified" }
+      ],
+      contacts: [
+        { name: "Axel Vega", company: "Personal", title: "Especialista en desarrollo de negocios", location: "Argentina", source: "Public professional profile", url: "https://www.linkedin.com/in/axel-vega-telecom/" },
+        { name: "Guille Cárdenas", company: "Personal / Flow", title: "Design & Content Lead | Flow", location: "Buenos Aires", source: "Public professional profile", url: "https://www.linkedin.com/in/guillecardenas/" },
+        { name: "José Luis Esperón", company: "Claro Argentina", title: "Ejecutivo de Soluciones Digitales", location: "Greater Buenos Aires", source: "Public professional profile", url: "https://www.linkedin.com/in/joseluisesperon/" },
+        { name: "Christian Martin Rivas Venturini", company: "Claro Argentina", title: "VAS and NFV/Virtualization Support Leader", location: "Buenos Aires", source: "Public professional profile", url: "https://www.linkedin.com/in/christian-martin-rivas-venturini-a35b105/" }
+      ],
+      contactRoles: ["Digital Services", "VAS", "Content & Entertainment", "Business Development"],
+      sources: [
+        { label: "Personal / Flow Disney+ billing", url: "https://www.personal.com.ar/flow/plataformas-de-streaming/disney-plus" },
+        { label: "Movistar digital-service billing", url: "https://ayuda.movistar.com.ar/pregunta/que-son-los-servicios-digitales-que-aparecen-en-mi-factura.html" },
+        { label: "Claro Prime Video billing", url: "https://www.claro.com.ar/personas/legal-y-regulatorio/terminos-condiciones-amazon-prime-video" }
+      ]
+    }
   ]
 };
