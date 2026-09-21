@@ -31,13 +31,6 @@ CREATE INDEX IF NOT EXISTS discovery_candidates_status_detected_idx
 CREATE INDEX IF NOT EXISTS discovery_candidates_market_status_idx
   ON discovery_candidates(market_id, status, detected_at DESC);
 
-INSERT INTO app_meta (key, value)
-VALUES ('schema_version', '3')
-ON CONFLICT(key) DO UPDATE SET
-  value = excluded.value,
-  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now');
-
-
 -- Reset legacy baselines that were accidentally captured from anti-bot challenge pages.
 -- The next successful source check will establish a clean baseline.
 UPDATE source_watch_state
@@ -57,3 +50,9 @@ WHERE lower(COALESCE(last_title, '')) LIKE '%challenge validation%'
    OR lower(COALESCE(last_title, '')) LIKE '%security check%'
    OR lower(COALESCE(last_title, '')) LIKE '%robot check%'
    OR lower(COALESCE(last_title, '')) LIKE '%access denied%';
+
+INSERT INTO app_meta (key, value)
+VALUES ('schema_version', '3')
+ON CONFLICT(key) DO UPDATE SET
+  value = excluded.value,
+  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now');
