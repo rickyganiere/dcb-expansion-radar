@@ -90,8 +90,8 @@
     panel.id = "workspaceTools";
     panel.className = "card workspaceTools";
     panel.innerHTML =
-      '<div><div class="eyebrow">Local workspace safety</div><h3>Backup before Supabase sync</h3>' +
-      '<p>Shortlist, compare selections, pipeline, market notes and Source Watch baselines are currently stored on this device. Export a backup anytime or restore it on another browser.</p></div>' +
+      '<div><div class="eyebrow">Local workspace safety</div><h3>Local backup & restore</h3>' +
+      '<p>Shortlist, compare selections, pipeline, market notes and Source Watch baselines stay available locally even when D1 sync is enabled. Export a manual backup anytime.</p></div>' +
       '<div class="workspaceActions">' +
       '<button class="btn primary" id="exportWorkspace" type="button">Export workspace</button>' +
       '<button class="btn ghost" id="importWorkspaceBtn" type="button">Restore backup</button>' +
