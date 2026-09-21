@@ -36,3 +36,24 @@ VALUES ('schema_version', '3')
 ON CONFLICT(key) DO UPDATE SET
   value = excluded.value,
   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now');
+
+
+-- Reset legacy baselines that were accidentally captured from anti-bot challenge pages.
+-- The next successful source check will establish a clean baseline.
+UPDATE source_watch_state
+SET baseline_hash = NULL,
+    last_hash = NULL,
+    changed = 0,
+    last_error = 'Baseline reset: previously captured bot challenge',
+    reviewed_at = NULL,
+    reviewed_by = NULL,
+    review_note = NULL,
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+WHERE lower(COALESCE(last_title, '')) LIKE '%challenge validation%'
+   OR lower(COALESCE(last_title, '')) LIKE '%just a moment%'
+   OR lower(COALESCE(last_title, '')) LIKE '%verify you are human%'
+   OR lower(COALESCE(last_title, '')) LIKE '%checking your browser%'
+   OR lower(COALESCE(last_title, '')) LIKE '%attention required%'
+   OR lower(COALESCE(last_title, '')) LIKE '%security check%'
+   OR lower(COALESCE(last_title, '')) LIKE '%robot check%'
+   OR lower(COALESCE(last_title, '')) LIKE '%access denied%';
