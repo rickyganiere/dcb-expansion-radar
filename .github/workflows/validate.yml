@@ -36,6 +36,14 @@ jobs:
           node --check public/followup-alerts.js
           node --check src/source-registry.js
           node --check src/index.js
+          node --check scripts/generate-seed.mjs
+
+      - name: Generate Supabase seed
+        run: |
+          node scripts/generate-seed.mjs > /tmp/radar-seed.sql
+          test -s /tmp/radar-seed.sql
+          grep -q 'insert into public.markets' /tmp/radar-seed.sql
+          grep -q 'insert into public.payment_partners' /tmp/radar-seed.sql
 
       - name: Smoke test Worker API\n        run: node scripts/smoke-worker.mjs\n\n      - name: Check required static assets
         run: |
