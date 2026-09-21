@@ -67,6 +67,10 @@
       !Object.keys(w.sourceWatch).length;
   }
 
+  function startAutoSync() {
+    if (autoSync) startAutoSync();
+  }
+
   async function api(path, options = {}) {
     const response = await fetch(path, {
       cache: "no-store",
@@ -213,6 +217,7 @@
       currentVersion = result.version;
       lastSyncedSnapshot = stableString(workspace);
       autoSync = true;
+      startAutoSync();
       const panel = ensurePanel();
       renderReady(panel, result.user, result.updatedAt);
       toast("Workspace saved to D1");
@@ -241,6 +246,7 @@
       applyWorkspace(cloud.workspace);
       lastSyncedSnapshot = stableString(cloud.workspace);
       autoSync = true;
+      startAutoSync();
       renderReady(ensurePanel(), cloud.user, cloud.updatedAt);
       toast("Cloud workspace restored");
       if (reload) setTimeout(() => location.reload(), 300);
@@ -297,6 +303,7 @@
       applyWorkspace(cloudWorkspace);
       lastSyncedSnapshot = stableString(cloudWorkspace);
       autoSync = true;
+      startAutoSync();
       renderReady(panel, cloud.user, cloud.updatedAt);
       setTimeout(() => location.reload(), 300);
       return;
@@ -305,6 +312,7 @@
     if (stableString(local) === stableString(cloudWorkspace)) {
       lastSyncedSnapshot = stableString(local);
       autoSync = true;
+      startAutoSync();
       renderReady(panel, cloud.user, cloud.updatedAt);
     } else {
       renderConflict(panel, cloud.user, cloud.updatedAt);
