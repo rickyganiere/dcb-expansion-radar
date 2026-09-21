@@ -38,6 +38,10 @@ jobs:
           node --check src/source-registry.js
           node --check src/index.js
           node --check scripts/generate-seed.mjs
+          node --check scripts/validate-schema.mjs
+
+      - name: Validate prepared Supabase schema
+        run: node scripts/validate-schema.mjs
 
       - name: Generate Supabase seed
         run: |
