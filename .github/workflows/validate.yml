@@ -31,6 +31,8 @@ jobs:
           node --check public/scores.js
           node --check public/app.js
           node --check public/workspace-tools.js
+          node --check public/source-watch.js
+          node --check src/source-registry.js
           node --check src/index.js
 
       - name: Check required static assets
