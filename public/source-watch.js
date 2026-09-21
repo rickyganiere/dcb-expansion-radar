@@ -103,6 +103,7 @@
       const row = centralRow(source.id);
       if (!row) return { cls: "", label: "Unchecked" };
       if (Number(row.changed) === 1) return { cls: "changed", label: "Change pending" };
+      if (/bot challenge/i.test(String(row.last_error || ""))) return { cls: "error", label: "Bot challenge" };
       if (Number(row.last_http_status) === 429) return { cls: "error", label: "Rate limited" };
       if (row.last_error) return { cls: "error", label: "Check failed" };
       if (row.last_hash && row.baseline_hash) return { cls: "same", label: "No change" };
