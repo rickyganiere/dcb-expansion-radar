@@ -582,6 +582,14 @@ export default {
       }
 
       const identity = await getAccessIdentity(ctx);
+      if (env.RADAR_DB && !identity) {
+        return json({
+          ok: false,
+          error: "access_required",
+          message: "Cloudflare Access authentication is required for persistent source checks."
+        }, { status: 401 });
+      }
+
       try {
         return json(await checkSourceById(id, env, identity?.email || "manual"));
       } catch (error) {
