@@ -39,7 +39,7 @@
     const section = document.createElement("section");
     section.id = "source-watch";
     section.innerHTML =
-      '<div class="sectionHeader"><div><h2>Source Watch</h2><p>Check monitored public sources and detect page changes since your last baseline.</p></div></div>' +
+      '<div class="sectionHeader"><div><h2>Source Watch <span class="count" id="sourceWatchChangeCount">0</span></h2><p>Check monitored public sources and detect page changes since your last accepted baseline.</p></div></div>' +
       '<div class="sourceWatchToolbar">' +
         '<p>A detected change means the source page fingerprint changed — it still needs human review before we treat it as a commercial or billing change.</p>' +
         '<div class="sourceWatchActions"><span class="watchProgress" id="watchProgress"></span><button class="btn ghost" id="resetWatch">Reset baselines</button><button class="btn primary" id="checkAllSources">Check all sources</button></div>' +
@@ -82,17 +82,44 @@
       const status = rowStatus(source);
       const when = saved?.checkedAt ? new Date(saved.checkedAt).toLocaleString() : "—";
       const detail = saved?.httpStatus ? "HTTP " + saved.httpStatus + (saved.durationMs ? " · " + saved.durationMs + "ms" : "") : "";
+      const accept = saved?.changed && saved?.lastHash
+        ? '<button class="btn tiny primary acceptBaselineBtn" data-source-id="' + esc(source.id) + '">Accept baseline</button>'
+        : '';
       return '<tr class="sourceWatchRow ' + (status.cls === "changed" ? "changedRow" : "") + '">' +
         '<td><strong>' + esc(marketName(source.marketId)) + '</strong></td>' +
         '<td><strong>' + esc(source.label) + '</strong><span class="sourceWatchMeta">' + esc(detail) + '</span></td>' +
         '<td>' + esc(source.type.replaceAll("_"," ")) + '</td>' +
         '<td>' + esc(when) + '</td>' +
         '<td><span class="watchStatus ' + esc(status.cls) + '">' + esc(status.label) + '</span></td>' +
-        '<td><div class="rowActions"><button class="btn tiny checkSourceBtn" data-source-id="' + esc(source.id) + '">Check</button><a class="btn tiny profileLink" href="' + esc(source.url) + '" target="_blank" rel="noreferrer">Open ↗</a></div></td>' +
+        '<td><div class="rowActions"><button class="btn tiny checkSourceBtn" data-source-id="' + esc(source.id) + '">Check</button>' + accept + '<a class="btn tiny profileLink" href="' + esc(source.url) + '" target="_blank" rel="noreferrer">Open ↗</a></div></td>' +
       '</tr>';
     }).join("") || '<tr><td colspan="6">No monitored sources.</td></tr>';
 
+    const changedCount = Object.values(state).filter(item => item?.changed).length;
+    const count = document.getElementById("sourceWatchChangeCount");
+    if (count) {
+      count.textContent = changedCount;
+      count.style.display = changedCount ? "inline-grid" : "none";
+    }
+
     document.querySelectorAll(".checkSourceBtn").forEach(btn => btn.addEventListener("click", () => checkOne(btn.dataset.sourceId, btn)));
+    document.querySelectorAll(".acceptBaselineBtn").forEach(btn => btn.addEventListener("click", () => acceptBaseline(btn.dataset.sourceId)));
+  }
+
+  function acceptBaseline(id) {
+    const item = state[id];
+    if (!item?.lastHash) return;
+    state[id] = {
+      ...item,
+      baselineHash: item.lastHash,
+      hash: item.lastHash,
+      changed: false,
+      baselineOnly: false,
+      error: null,
+      reviewedAt: new Date().toISOString()
+    };
+    saveState();
+    render();
   }
 
   async function checkOne(id, button) {
@@ -104,16 +131,20 @@
       const response = await fetch("/api/check-source?id=" + encodeURIComponent(id), { cache: "no-store" });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.detail || result.error || "Check failed");
-      const hadBaseline = Boolean(previous?.hash);
-      const changed = hadBaseline && previous.hash !== result.hash;
+      const baselineHash = previous?.baselineHash || previous?.hash || null;
+      const hadBaseline = Boolean(baselineHash);
+      const changed = hadBaseline && baselineHash !== result.hash;
       state[id] = {
-        hash: result.hash,
+        baselineHash: baselineHash || result.hash,
+        hash: baselineHash || result.hash,
+        lastHash: result.hash,
         checkedAt: result.checkedAt,
         httpStatus: result.status,
         durationMs: result.durationMs,
         changed,
         baselineOnly: !hadBaseline,
-        error: null
+        error: null,
+        reviewedAt: previous?.reviewedAt || null
       };
       saveState();
       render();
@@ -123,8 +154,8 @@
         ...(previous || {}),
         checkedAt: new Date().toISOString(),
         error: String(error?.message || error),
-        changed: false,
-        baselineOnly: false
+        changed: previous?.changed || false,
+        baselineOnly: previous?.baselineOnly || false
       };
       saveState();
       render();
