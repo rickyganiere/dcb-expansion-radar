@@ -21,6 +21,14 @@
     return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString();
   }
 
+  function statusLabel(status) {
+    return ({
+      pending: "Pending review",
+      accepted: "Accepted for research",
+      dismissed: "Dismissed"
+    })[status] || status;
+  }
+
   function installStyles() {
     if (document.getElementById("discoveryInboxStyles")) return;
     const style = document.createElement("style");
@@ -119,10 +127,11 @@
           '<div class="eyebrow">' + esc(marketName(candidate.market_id)) + ' · source change</div>' +
           '<h3>' + esc(candidate.title || candidate.source_id) + '</h3>' +
           '<div class="discoveryMeta">Detected ' + esc(fmt(candidate.detected_at)) + '</div>' +
-        '</div><span class="discoveryStatus ' + esc(candidate.status) + '">' + esc(candidate.status) + '</span></div>' +
+        '</div><span class="discoveryStatus ' + esc(candidate.status) + '">' + esc(statusLabel(candidate.status)) + '</span></div>' +
         '<p>' + esc(candidate.summary || "Source content changed compared with the reviewed baseline.") + '</p>' +
         '<div class="rowActions">' +
           actionButtons(candidate) +
+          '<button class="btn tiny" data-open="' + esc(candidate.market_id) + '">Open market</button>' +
           '<a class="btn tiny profileLink" href="' + esc(candidate.source_url) + '" target="_blank" rel="noreferrer">Open source ↗</a>' +
         '</div>' +
         reviewed +
