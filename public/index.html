@@ -15,6 +15,7 @@
     <nav class="nav">
       <a href="#overview">Overview</a>
       <a href="#markets">Markets</a>
+      <a href="#signals">Signals</a>
       <button id="openShortlist" type="button">Shortlist <span class="count" id="shortlistCount">0</span></button>
       <button id="openPipeline" type="button">Pipeline <span class="count" id="pipelineCount">0</span></button>
       <a href="#workflow">Workflow</a>
@@ -61,6 +62,37 @@
       <div class="marketGrid" id="marketGrid"></div>
     </section>
 
+    <section id="signals">
+      <div class="sectionHeader">
+        <div>
+          <h2>Market signals</h2>
+          <p>Verified billing changes, market updates and items that need commercial revalidation.</p>
+        </div>
+      </div>
+      <div class="signalToolbar">
+        <div class="filters">
+          <button class="btn signalFilter active" data-signal-filter="all">All signals</button>
+          <button class="btn signalFilter" data-signal-filter="billing_route">Billing routes</button>
+          <button class="btn signalFilter" data-signal-filter="market_update">Market updates</button>
+          <button class="btn signalFilter" data-signal-filter="corporate_change">Corporate changes</button>
+        </div>
+      </div>
+      <div class="signalsGrid" id="signalsList"></div>
+
+      <div class="sectionHeader recheckHeader">
+        <div>
+          <h2>Recheck queue <span class="count" id="recheckCount">0</span></h2>
+          <p>Routes and operator assumptions that are not yet fully verified or should be refreshed.</p>
+        </div>
+      </div>
+      <div class="card tableWrap">
+        <table>
+          <thead><tr><th>Market</th><th>Company / rail</th><th>Current evidence</th><th>Priority</th><th></th></tr></thead>
+          <tbody id="recheckRows"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section id="workflow">
       <div class="sectionHeader">
         <div>
@@ -91,6 +123,7 @@
 </dialog>
 
 <script src="./data.js"></script>
+<script src="./signals.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>
