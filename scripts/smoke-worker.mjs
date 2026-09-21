@@ -80,6 +80,14 @@ class FakeStatement {
   }
 
   async all() {
+    if (this.sql.includes("FROM source_watch_state") && this.sql.includes("ORDER BY changed DESC")) {
+      return { success: true, results: [] };
+    }
+
+    if (this.sql.includes("FROM source_watch_history")) {
+      return { success: true, results: [] };
+    }
+
     if (this.sql.includes("FROM discovery_candidates")) {
       let rows = [...this.db.candidates];
       if (this.sql.includes("WHERE status = ?1")) {
@@ -322,6 +330,27 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const db = new FakeD1();
   const env = { ASSETS: assets, RADAR_DB: db };
 
+  const stateDenied = await call("/api/source-watch/state", { env });
+  assert.equal(stateDenied.status, 401);
+
+  const historyDenied = await call("/api/source-watch/history?id=mx-google-play", { env });
+  assert.equal(historyDenied.status, 401);
+
+  const stateAllowed = await call("/api/source-watch/state", { env, ctx: authenticatedCtx });
+  assert.equal(stateAllowed.status, 200);
+  const statePayload = await stateAllowed.json();
+  assert.deepEqual(statePayload.state, []);
+
+  const historyAllowed = await call("/api/source-watch/history?id=mx-google-play", { env, ctx: authenticatedCtx });
+  assert.equal(historyAllowed.status, 200);
+  const historyPayload = await historyAllowed.json();
+  assert.deepEqual(historyPayload.history, []);
+}
+
+{
+  const db = new FakeD1();
+  const env = { ASSETS: assets, RADAR_DB: db };
+
   const health = await call("/api/automation/health", { env, ctx: authenticatedCtx });
   assert.equal(health.status, 200);
   const healthPayload = await health.json();
@@ -472,5 +501,6 @@ console.log("Worker smoke tests passed:", {
   automationHealth: true,
   discoveryInbox: true,
   rateLimitRetry: true,
-  botChallengeDetection: true
+  botChallengeDetection: true,
+  protectedSourceWatchReads: true
 });
