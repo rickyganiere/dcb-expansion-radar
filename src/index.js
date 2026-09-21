@@ -9,12 +9,12 @@ function json(data, init = {}) {
 
 function normalizeSourceText(html) {
   return String(html || "")
-    .replace(/<script[\\s\\S]*?<\\/script>/gi, " ")
-    .replace(/<style[\\s\\S]*?<\\/style>/gi, " ")
-    .replace(/<!--([\\s\\S]*?)-->/g, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--([\s\S]*?)-->/g, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ")
-    .replace(/\\s+/g, " ")
+    .replace(/\s+/g, " ")
     .trim()
     .slice(0, 750000);
 }
@@ -37,7 +37,7 @@ async function inspectSource(id, entry) {
 
   const raw = await response.text();
   const normalized = normalizeSourceText(raw);
-  const titleMatch = raw.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i);
+  const titleMatch = raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? normalizeSourceText(titleMatch[1]).slice(0, 180) : null;
 
   return {
