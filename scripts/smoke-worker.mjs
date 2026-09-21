@@ -39,7 +39,52 @@ class FakeStatement {
       return { version: this.db.row.version };
     }
 
+    if (this.sql.includes("FROM source_watch_state") && this.sql.includes("COUNT(*) AS total")) {
+      return {
+        total: 14,
+        healthy: 13,
+        changed: 0,
+        failed: 1,
+        unchecked: 0,
+        rate_limited: 1,
+        stale: 0
+      };
+    }
+
+    if (this.sql.includes("FROM app_meta WHERE key = 'last_source_watch_run'")) {
+      return { value: this.db.appMeta.last_source_watch_run || null };
+    }
+
+    if (this.sql.includes("FROM app_meta WHERE key = 'last_source_watch_summary'")) {
+      return { value: this.db.appMeta.last_source_watch_summary || null };
+    }
+
+    if (this.sql.includes("COUNT(*) AS pending FROM discovery_candidates")) {
+      return { pending: this.db.candidates.filter(x => x.status === "pending").length };
+    }
+
+    if (this.sql.includes("SUM(CASE WHEN status = 'pending'")) {
+      return {
+        pending: this.db.candidates.filter(x => x.status === "pending").length,
+        accepted: this.db.candidates.filter(x => x.status === "accepted").length,
+        dismissed: this.db.candidates.filter(x => x.status === "dismissed").length
+      };
+    }
+
     throw new Error("Unhandled fake D1 first(): " + this.sql);
+  }
+
+  async all() {
+    if (this.sql.includes("FROM discovery_candidates")) {
+      let rows = [...this.db.candidates];
+      if (this.sql.includes("WHERE status = ?1")) {
+        rows = rows.filter(x => x.status === this.args[0]);
+      }
+      rows.sort((a, b) => String(b.detected_at).localeCompare(String(a.detected_at)) || b.id - a.id);
+      return { success: true, results: rows.slice(0, 100) };
+    }
+
+    throw new Error("Unhandled fake D1 all(): " + this.sql);
   }
 
   async run() {
@@ -66,6 +111,18 @@ class FakeStatement {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (this.sql.startsWith("UPDATE discovery_candidates")) {
+      const [status, reviewedAt, reviewedBy, reviewNote, id] = this.args;
+      const candidate = this.db.candidates.find(x => x.id === id);
+      if (!candidate) return { success: true, meta: { changes: 0 } };
+      candidate.status = status;
+      candidate.reviewed_at = reviewedAt;
+      candidate.reviewed_by = reviewedBy;
+      candidate.review_note = reviewNote;
+      candidate.updated_at = reviewedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
     throw new Error("Unhandled fake D1 run(): " + this.sql);
   }
 }
@@ -73,6 +130,33 @@ class FakeStatement {
 class FakeD1 {
   constructor() {
     this.row = null;
+    this.appMeta = {
+      last_source_watch_run: "2026-09-21T23:04:18.973Z",
+      last_source_watch_summary: JSON.stringify({
+        ok: true,
+        attempted: 14,
+        checked: 14,
+        changed: 0,
+        failed: 0,
+        completedAt: "2026-09-21T23:04:18.973Z",
+        actor: "test.user@example.com"
+      })
+    };
+    this.candidates = [{
+      id: 1,
+      source_id: "mx-google-play",
+      market_id: "mexico",
+      candidate_type: "source_change",
+      content_hash: "abc123",
+      title: "Google Play Mexico billing methods changed",
+      summary: "Review source before updating market intelligence.",
+      source_url: "https://example.test/source",
+      status: "pending",
+      detected_at: "2026-09-21T23:10:00.000Z",
+      reviewed_at: null,
+      reviewed_by: null,
+      review_note: null
+    }];
   }
 
   prepare(sql) {
@@ -224,6 +308,54 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const payload = await response.json();
   assert.ok(payload.capabilities.includes("source-watch"));
   assert.ok(payload.capabilities.includes("d1-workspace-sync"));
+  assert.ok(payload.capabilities.includes("automation-health"));
+  assert.ok(payload.capabilities.includes("discovery-inbox"));
+}
+
+{
+  const db = new FakeD1();
+  const env = { ASSETS: assets, RADAR_DB: db };
+
+  const health = await call("/api/automation/health", { env, ctx: authenticatedCtx });
+  assert.equal(health.status, 200);
+  const healthPayload = await health.json();
+  assert.equal(healthPayload.sources.total, 14);
+  assert.equal(healthPayload.sources.rateLimited, 1);
+  assert.equal(healthPayload.discovery.pending, 1);
+  assert.equal(healthPayload.lastSummary.checked, 14);
+
+  const inbox = await call("/api/discovery/inbox?status=pending", { env, ctx: authenticatedCtx });
+  assert.equal(inbox.status, 200);
+  const inboxPayload = await inbox.json();
+  assert.equal(inboxPayload.counts.pending, 1);
+  assert.equal(inboxPayload.candidates.length, 1);
+  assert.equal(inboxPayload.candidates[0].market_id, "mexico");
+
+  const accept = await call("/api/discovery/review", {
+    env,
+    ctx: authenticatedCtx,
+    method: "POST",
+    body: { id: 1, action: "accept" }
+  });
+  assert.equal(accept.status, 200);
+  const acceptPayload = await accept.json();
+  assert.equal(acceptPayload.status, "accepted");
+
+  const pendingAfter = await call("/api/discovery/inbox?status=pending", { env, ctx: authenticatedCtx });
+  const pendingAfterPayload = await pendingAfter.json();
+  assert.equal(pendingAfterPayload.candidates.length, 0);
+  assert.equal(pendingAfterPayload.counts.pending, 0);
+  assert.equal(pendingAfterPayload.counts.accepted, 1);
+
+  const reopen = await call("/api/discovery/review", {
+    env,
+    ctx: authenticatedCtx,
+    method: "POST",
+    body: { id: 1, action: "reopen" }
+  });
+  assert.equal(reopen.status, 200);
+  const reopenPayload = await reopen.json();
+  assert.equal(reopenPayload.status, "pending");
 }
 
 {
@@ -256,5 +388,7 @@ console.log("Worker smoke tests passed:", {
   markets: marketIds.size,
   monitoredSources: Object.keys(SOURCE_REGISTRY).length,
   d1Workspace: true,
-  optimisticConcurrency: true
+  optimisticConcurrency: true,
+  automationHealth: true,
+  discoveryInbox: true
 });
