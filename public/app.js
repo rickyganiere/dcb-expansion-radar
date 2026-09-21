@@ -1,6 +1,7 @@
 (() => {
   const data = window.RADAR_DATA || { markets: [] };
   const signals = window.RADAR_SIGNALS || [];
+  const partners = window.RADAR_PARTNERS || [];
   const liveMarkets = data.markets.filter(m => m.status === "live");
   const state = {
     query: "",
@@ -432,6 +433,60 @@ Ricky`;
   }
 
 
+  function renderPartners() {
+    const root = $("#partnersGrid");
+    if (!root) return;
+    root.innerHTML = partners.map(p => {
+      const countryNames = (p.countries || []).map(id => data.markets.find(m => m.id === id)?.name || id);
+      return `
+        <article class="card partnerCard">
+          <div class="partnerTop">
+            <div>
+              <span class="confidence ${esc(p.confidence)}">${confidenceLabel(p.confidence)}</span>
+              <h3>${esc(p.name)}</h3>
+              <div class="partnerType">${esc(p.type)}</div>
+            </div>
+            <strong>${countryNames.length}</strong>
+          </div>
+          <p>${esc(p.summary)}</p>
+          <div class="tags">${countryNames.map(name => `<span class="tag">${esc(name)}</span>`).join("")}</div>
+          <div class="partnerCapabilities">${(p.capabilities || []).slice(0,4).map(x=>`<span>${esc(x)}</span>`).join("")}</div>
+          <div class="rowActions partnerActions">
+            <button class="btn primary" data-partner="${esc(p.id)}">Open coverage</button>
+            <a class="btn ghost profileLink" href="${esc(p.currentEvidence.url)}" target="_blank" rel="noreferrer">Source ↗</a>
+          </div>
+        </article>`;
+    }).join("");
+  }
+
+  function openPartner(id) {
+    const p = partners.find(x => x.id === id);
+    if (!p) return;
+    const body = $("#modalBody");
+    body.innerHTML = `
+      <div class="eyebrow">Payment partner intelligence</div>
+      <h2>${esc(p.name)}</h2>
+      <p class="lede">${esc(p.summary)}</p>
+      <div class="tags partnerModalTags">${(p.capabilities || []).map(x=>`<span class="tag">${esc(x)}</span>`).join("")}</div>
+      <div class="sectionHeader compact"><div><h3>Country / operator evidence</h3><p>Coverage does not imply a current merchant-ready DCB route unless explicitly verified.</p></div></div>
+      <div class="card tableWrap"><table>
+        <thead><tr><th>Market</th><th>Operator / scope</th><th>Status</th><th>Evidence note</th><th></th></tr></thead>
+        <tbody>
+          ${(p.routes || []).map(r => {
+            const market = data.markets.find(m => m.id === r.marketId);
+            return `<tr>
+              <td><button class="btn tiny" data-open="${esc(r.marketId)}">${esc(market?.name || r.marketId)}</button></td>
+              <td><strong>${esc(r.operator)}</strong></td>
+              <td><span class="status ${r.status === "route-discovery" ? "priorityHigh" : "priorityMedium"}">${esc(r.status.replaceAll("-"," "))}</span></td>
+              <td>${esc(r.note)}</td>
+              <td><a class="btn tiny profileLink" href="${esc(r.evidence)}" target="_blank" rel="noreferrer">Evidence ↗</a></td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table></div>`;
+    $("#modal").showModal();
+  }
+
   function signalTypeLabel(type) {
     return ({
       billing_route: "Billing route",
@@ -497,6 +552,20 @@ Ricky`;
         }
       });
     });
+    partners.forEach(p => {
+      (p.routes || []).forEach(r => {
+        if (r.status === "verified") return;
+        const market = data.markets.find(m => m.id === r.marketId);
+        rows.push({
+          marketId: r.marketId,
+          market: market?.name || r.marketId,
+          target: p.name + " · " + r.operator,
+          detail: r.note,
+          confidence: r.status === "route-discovery" ? "unknown" : "review",
+          priority: r.status === "route-discovery" ? "High" : "Medium"
+        });
+      });
+    });
     return rows.sort((a,b) => (a.priority === "High" ? -1 : 1) - (b.priority === "High" ? -1 : 1));
   }
 
@@ -531,6 +600,8 @@ Ricky`;
     $("#modalClose")?.addEventListener("click", () => $("#modal").close());
     $("#modal")?.addEventListener("click", e => { if (e.target.id === "modal") $("#modal").close(); });
     document.addEventListener("click", e => {
+      const partner = e.target.closest("[data-partner]");
+      if (partner) openPartner(partner.dataset.partner);
       const open = e.target.closest("[data-open]");
       if (open) openMarket(open.dataset.open);
       const short = e.target.closest("[data-shortlist]");
@@ -590,6 +661,7 @@ Ricky`;
   wireGlobal();
   renderKPIs();
   renderMarkets();
+  renderPartners();
   renderSignals();
   renderRecheckQueue();
   checkApiStatus();
