@@ -45,7 +45,8 @@ create table if not exists public.billing_rails (
   source_url text,
   last_verified_at timestamptz,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (market_id, provider_name, rail_type)
 );
 
 create table if not exists public.commercial_targets (
