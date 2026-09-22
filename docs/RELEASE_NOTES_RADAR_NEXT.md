@@ -7,150 +7,154 @@ Target: `main`
 
 ### 1. D1 operational status
 - API badge reports the real D1 schema version.
-- Schema guards prevent Discovery Inbox and Source Manager from running before their migrations exist.
+- Schema guards prevent modules from running before their required migrations exist.
 - Workspace auto-sync continues correctly after the first cloud save.
 - Optimistic conflict handling remains enabled.
 
 ### 2. Automation Health
-- Dashboard panel shows:
-  - monitored sources
-  - healthy sources
-  - changed sources
-  - failed checks
-  - rate-limited sources
-  - bot-blocked sources
-  - stale sources
-  - sources due now
-  - pending Discovery Inbox items
+- Dashboard shows monitored, healthy, changed, failed, rate-limited, bot-blocked, stale and due sources.
+- Discovery Inbox pending count is visible.
 - Last and next scheduled run are shown in local browser time.
-- Metrics refresh immediately after Source Watch, Discovery Inbox or Source Manager changes.
+- Panels refresh after Source Watch, Discovery Inbox and Source Manager changes.
 
 ### 3. Source Watch hardening
-- Checks run with concurrency capped at 3.
+- Concurrency capped at 3.
 - Same-host requests are staggered.
-- HTTP 429 and 5xx responses are retried.
-- Retry-After supports seconds and HTTP-date forms.
-- Transient network failures are retried.
-- Retry responses are closed before another attempt.
-- HTTP errors are stored as failures, never as “No change”.
-- Anti-bot pages such as “Challenge Validation” and “Just a moment” are rejected even when HTTP status is 200.
-- Legacy challenge-page baselines are reset by migration 0003.
-- UI explicitly labels Rate limited and Bot challenge states.
+- HTTP 429 / 5xx and transient failures are retried.
+- Retry-After seconds and HTTP-date forms are supported.
+- HTTP failures never appear as “No change”.
+- Anti-bot pages are rejected even with HTTP 200.
+- HTML/XHTML/plain-text only, max 2 MB.
+- Changed fingerprints remain reviewable until baseline acceptance.
 
 ### 4. Cadence-aware scheduled scanning
-- Every source has an explicit cadence and priority.
-- Commercial billing-route sources can run every 12h.
-- Google Play billing evidence runs daily.
-- slower regulatory evidence can run every 3 or 7 days.
-- Scheduled Cron checks only sources that are actually due.
-- Manual “Check all sources” still forces a full check.
-- 429 responses use at least a 24h backoff.
-- bot challenges use at least a 72h backoff.
-- Source Watch displays cadence and priority per source.
-- monitored responses are limited to HTML/XHTML/plain text and 2 MB.
-- binary/PDF or oversized responses fail safely instead of entering fingerprint history.
+- Per-source cadence and priority.
+- Commercial billing sources can run every 12h.
+- Google Play billing evidence daily.
+- Regulatory evidence can run every 3 or 7 days.
+- Cron scans only due sources.
+- Manual Check all forces a complete pass.
+- 429 uses at least 24h backoff; bot challenge at least 72h.
 
 ### 5. Discovery Inbox
-- Source changes create deduplicated review candidates in D1.
-- A source change never becomes verified intelligence automatically.
-- Candidate states:
-  - Pending review
-  - Accepted for research
-  - Dismissed
+- Source changes create deduplicated D1 review candidates.
+- States: Pending review / Accepted for research / Dismissed.
 - Candidates can be reopened.
-- Each candidate links to both the source and its market.
-- Pending/accepted/dismissed counts are visible.
+- Automated changes never become verified intelligence directly.
 
-### 6. Source Coverage
-- New coverage matrix per market with three explicit pillars:
+### 6. Source Coverage + Attention Queue
+- Explicit per-market pillars:
   - Billing evidence
   - Market / regulatory
   - Commercial ecosystem
-- Missing pillars become actionable gaps.
-- Gap buttons prefill market, source type, cadence and priority in Source Manager.
-- Coverage updates immediately when a custom source is added or disabled.
-- Coverage health states: Healthy / Review / Degraded / Unchecked / Gap.
-- A source that is present but failing checks does not count as healthy operational coverage.
-- New **Attention Queue** surfaces unresolved coverage issues with explicit reasons.
-- Attention ordering is deterministic and explainable: billing first, then market/regulatory, then commercial ecosystem; missing/failed coverage before unchecked coverage.
-- No opaque score is used: the UI shows the actual source presence and health behind each pillar.
+- Health states: Healthy / Review / Degraded / Unchecked / Gap.
+- Gap actions prefill Source Manager.
+- Explainable Attention Queue prioritizes billing, then market/regulatory, then commercial ecosystem.
+- No opaque score is used.
 
 ### 7. Source Manager
-- New authenticated Source Manager backed by D1.
-- The 14 core sources remain protected and read-only.
-- Custom sources can be:
-  - added
-  - edited
-  - enabled
-  - disabled
-  - bulk imported from CSV
-  - exported to CSV
-- Disabling a custom source stops future scans without deleting its history.
-- Only public HTTPS URLs are accepted.
-- Direct IPs, localhost/internal hosts, embedded credentials and custom ports are rejected.
-- Supported cadence values: 12h, 24h, 72h and 168h.
-- Bulk import accepts up to 100 rows per request and reports created/skipped/errors.
-- **Preview import** validates CSV rows without writing anything to D1.
-- **Test source** probes a single candidate URL before saving it, including bot-challenge/content checks.
-- Duplicate URLs are skipped instead of duplicated.
-- Custom sources feed Source Watch and Discovery Inbox but never auto-promote to verified intelligence.
+- Core sources remain protected/read-only.
+- D1 custom sources can be added, edited, enabled and disabled.
+- CSV bulk import/export, no-write preview and downloadable template.
+- Test source probes a candidate URL before saving.
+- Public HTTPS only; direct IPs, internal hosts, credentials and custom ports rejected.
+- Duplicate URLs are skipped.
+- Custom sources feed Source Watch/Discovery Inbox but never auto-promote.
 
 ### 8. Source entity tags
-- D1-managed sources can be tagged with up to 12 operators / partners.
-- Tags are available in create, update, bulk import, CSV export and the active source API.
-- Missing `entityTags` on update preserves the current tags.
-- Bulk CSV uses semicolon-separated entity tags.
-- Core sources remain valid without tags and can be enriched later.
+- Managed sources can carry up to 12 operator / partner tags.
+- Tags work in create, update, bulk import, CSV export and active-source APIs.
+- Missing tags on update preserve the current tags.
 
-### 9. D1 schema v5
-Migration 0003 adds:
+### 9. Publisher / Affiliate Discovery
+- Publisher Discovery is integrated into the same DCB Expansion Radar.
+- Unified commercial roles:
+  - Publisher
+  - Advertiser
+  - Network
+  - Operator
+  - Aggregator
+  - Both
+  - Unknown
+- App Store / Google Play listing scan extracts:
+  - app name
+  - developer/company
+  - developer/support/privacy links
+  - primary external domain
+  - linked web assets
+- Same developer/domain is deduplicated into one commercial entity.
+- Candidates can be classified, qualified, dismissed or added to the shared commercial pipeline.
+
+### 10. Automated Store Discovery
+- New Store Discovery Seeds by market / keyword / store.
+- Apple discovery uses the App Store/iTunes Search API.
+- Google Play discovery parses public store search pages.
+- Discovered app URLs enter a deduplicated D1 queue.
+- Queue processing scans app listings and creates publisher candidates automatically.
+- VAS preset pack includes:
+  - dating
+  - horoscope
+  - astrology
+  - streaming
+  - entertainment
+  - quiz
+  - games
+  - vpn
+  - utility
+- Failed app listings can be retried.
+- Scheduled Cron processes small seed/app batches to protect rate limits.
+
+### 11. D1 schema v7
+Migration 0003:
 - `discovery_candidates`
 
-Migration 0004 adds:
+Migration 0004:
 - `monitored_sources`
 
-Migration 0003 also clears known anti-bot baselines before writing schema version 3.
-Migration 0004 advances the schema to version 5.
+Migration 0005:
+- `entity_tags_json` on `monitored_sources`
 
-### 10. Product copy / UI cleanup
-- Removed stale “prototype” and old-backend language.
-- Workflow copy reflects D1 persistence, Discovery Inbox and automation.
-- Pipeline copy reflects local fallback + D1 sync.
-- Product status presents the tool as an operational intelligence workspace.
-- Operational panels refresh together after checks/reviews/source changes.
+Migration 0006:
+- `commercial_entities`
+- `commercial_assets`
 
-### 11. Testing
-CI validates feature branches and covers:
+Migration 0007:
+- `app_discovery_seeds`
+- `app_discovery_queue`
+
+Schema advances sequentially to version 7.
+
+### 12. Testing
+CI validates:
 - intelligence data
 - JavaScript syntax
-- D1 schema v5
-- required assets
-- workspace persistence
-- optimistic concurrency
-- Automation Health API
-- Discovery Inbox API
-- accept/reopen review flow
-- HTTP 429 retry → success
-- persistent HTTP 429 → failed check
-- HTTP 200 anti-bot challenge → failed check
-- cadence-aware Cron skipping fresh sources
-- rate-limit backoff
-- core-source cadence metadata
-- Source Manager create/update/disable lifecycle
-- bulk CSV source import with duplicate/error reporting
-- protected core source mutation rejection
-- unsafe custom URL rejection
-- unsupported content-type rejection
-- oversized response rejection
+- D1 schema v7
+- Worker API
+- Source Watch / Automation Health / Discovery Inbox
+- Source Manager lifecycle and bulk operations
+- source preflight and content guards
+- coverage health and Attention Queue
+- Publisher Discovery parser for Google Play and Apple App Store
+- outbound-domain extraction
+- commercial-entity deduplication
+- commercial-role review
+- Apple search seed discovery
+- Google Play search seed discovery
+- app queue deduplication
+- queue → publisher graph processing
+- failed listing retry
 
 ## Production release order
 
 1. Confirm branch CI is green.
-2. Apply migration `0003_discovery_inbox.sql` to production D1.
-3. Apply migration `0004_monitored_sources.sql` to production D1.
-4. Verify `schema_version = 5`.
-5. Merge `feature/radar-next` to `main` once.
-6. Wait for one Cloudflare production deployment.
-7. Run post-deploy checks from `docs/RELEASE_CHECKLIST.md`.
+2. Apply `migrations/0003_discovery_inbox.sql`.
+3. Apply `migrations/0004_monitored_sources.sql`.
+4. Apply `migrations/0005_source_entity_tags.sql`.
+5. Apply `migrations/0006_commercial_entities.sql`.
+6. Apply `migrations/0007_app_discovery_queue.sql`.
+7. Verify `schema_version = 7`.
+8. Merge `feature/radar-next` to `main` once.
+9. Wait for one Cloudflare production deployment.
+10. Run `docs/RELEASE_CHECKLIST.md`.
 
-No production merge or deploy should happen before migrations 0003 and 0004 are applied successfully.
+No production merge/deploy before all migrations are verified.
