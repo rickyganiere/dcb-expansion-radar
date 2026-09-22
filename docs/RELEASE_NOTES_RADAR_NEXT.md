@@ -47,6 +47,8 @@ Target: `main`
 - 429 responses use at least a 24h backoff.
 - bot challenges use at least a 72h backoff.
 - Source Watch displays cadence and priority per source.
+- monitored responses are limited to HTML/XHTML/plain text and 2 MB.
+- binary/PDF or oversized responses fail safely instead of entering fingerprint history.
 
 ### 5. Discovery Inbox
 - Source changes create deduplicated review candidates in D1.
@@ -110,6 +112,8 @@ CI validates feature branches and covers:
 - Source Manager create/update/disable lifecycle
 - protected core source mutation rejection
 - unsafe custom URL rejection
+- unsupported content-type rejection
+- oversized response rejection
 
 ## Production release order
 
