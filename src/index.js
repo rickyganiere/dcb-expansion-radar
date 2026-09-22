@@ -113,11 +113,76 @@ async function fetchMonitoredSource(url) {
   throw lastError || new Error("source_fetch_failed");
 }
 
+async function readResponseTextLimited(response, maxBytes = 2_000_000) {
+  const declaredLength = Number(response.headers.get("content-length") || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    try { await response.body?.cancel(); } catch {}
+    throw new Error("Source content exceeds 2 MB limit");
+  }
+
+  if (!response.body?.getReader) {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > maxBytes) {
+      throw new Error("Source content exceeds 2 MB limit");
+    }
+    return text;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error("Source content exceeds 2 MB limit");
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return text;
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+}
+
+function attachInspectionMetadata(error, response, started) {
+  error.httpStatus = response?.status ?? null;
+  error.durationMs = Date.now() - started;
+  return error;
+}
+
 async function inspectSource(id, entry) {
   const started = Date.now();
   const response = await fetchMonitoredSource(entry.url);
 
-  const raw = await response.text();
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  const allowedContentType =
+    !contentType ||
+    contentType.includes("text/html") ||
+    contentType.includes("application/xhtml+xml") ||
+    contentType.includes("text/plain");
+
+  if (response.ok && !allowedContentType) {
+    try { await response.body?.cancel(); } catch {}
+    throw attachInspectionMetadata(
+      new Error("Unsupported source content type"),
+      response,
+      started
+    );
+  }
+
+  let raw;
+  try {
+    raw = await readResponseTextLimited(response);
+  } catch (error) {
+    throw attachInspectionMetadata(error, response, started);
+  }
   const normalized = normalizeSourceText(raw);
   const titleMatch = raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? normalizeSourceText(titleMatch[1]).slice(0, 180) : null;
@@ -961,7 +1026,13 @@ async function sourceManager(request, env, ctx) {
       return sourceErrorResponse(error);
     }
 
-    const coreDuplicate = Object.values(SOURCE_REGISTRY).some(entry => entry.url === source.url);
+    const coreDuplicate = Object.values(SOURCE_REGISTRY).some(entry => {
+      try {
+        return normalizeManagedSourceUrl(entry.url) === source.url;
+      } catch {
+        return entry.url === source.url;
+      }
+    });
     if (coreDuplicate) return sourceErrorResponse(new Error("duplicate_source_url"), 409);
 
     const id = "custom-" + crypto.randomUUID();
@@ -1046,7 +1117,13 @@ async function sourceManager(request, env, ctx) {
       return sourceErrorResponse(error);
     }
 
-    const coreDuplicate = Object.values(SOURCE_REGISTRY).some(entry => entry.url === source.url);
+    const coreDuplicate = Object.values(SOURCE_REGISTRY).some(entry => {
+      try {
+        return normalizeManagedSourceUrl(entry.url) === source.url;
+      } catch {
+        return entry.url === source.url;
+      }
+    });
     if (coreDuplicate) return sourceErrorResponse(new Error("duplicate_source_url"), 409);
 
     const now = new Date().toISOString();
