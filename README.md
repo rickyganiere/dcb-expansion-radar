@@ -39,6 +39,7 @@ Production remains on `main`. New development is prepared on `feature/radar-next
 - Automation Health dashboard
 - Discovery Inbox for reviewable source-change candidates
 - D1 Source Manager for adding/editing/disabling custom monitored sources
+- bulk CSV import/export for source operations
 - Per-market commercial notes
 - Workspace backup/restore
 - Shareable market deep links
