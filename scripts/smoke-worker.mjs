@@ -540,6 +540,16 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   assert.equal(mexico.pillars.find(pillar => pillar.id === "market").covered, true);
   assert.equal(mexico.pillars.find(pillar => pillar.id === "ecosystem").covered, false);
 
+  const mexicoBillingState = db.sourceStates.find(row => row.source_id === "mx-google-play");
+  mexicoBillingState.last_http_status = 429;
+  mexicoBillingState.last_error = "HTTP 429 from monitored source";
+
+  const degradedCoverage = await call("/api/source-coverage", { env, ctx: authenticatedCtx });
+  const degradedPayload = await degradedCoverage.json();
+  const degradedMexico = degradedPayload.markets.find(market => market.marketId === "mexico");
+  assert.equal(degradedMexico.pillars.find(pillar => pillar.id === "billing").status, "degraded");
+  assert.ok(degradedPayload.summary.atRisk >= 1);
+
   const create = await call("/api/source-manager", {
     env,
     ctx: authenticatedCtx,
@@ -555,11 +565,34 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
     }
   });
   assert.equal(create.status, 201);
+  const createdPayload = await create.json();
+  const newSourceId = createdPayload.source.id;
+
+  const uncheckedCoverage = await call("/api/source-coverage", { env, ctx: authenticatedCtx });
+  const uncheckedPayload = await uncheckedCoverage.json();
+  const uncheckedMexico = uncheckedPayload.markets.find(market => market.marketId === "mexico");
+  assert.equal(uncheckedMexico.pillars.find(pillar => pillar.id === "ecosystem").status, "unchecked");
+
+  db.sourceStates.push({
+    source_id: newSourceId,
+    baseline_hash: "custom-baseline",
+    last_hash: "custom-baseline",
+    changed: 0,
+    checked_at: new Date().toISOString(),
+    last_http_status: 200,
+    last_duration_ms: 80,
+    last_title: "Operator updates",
+    last_error: null
+  });
+
+  mexicoBillingState.last_http_status = 200;
+  mexicoBillingState.last_error = null;
 
   const after = await call("/api/source-coverage", { env, ctx: authenticatedCtx });
   const afterPayload = await after.json();
   const mexicoAfter = afterPayload.markets.find(market => market.marketId === "mexico");
   assert.equal(mexicoAfter.pillars.find(pillar => pillar.id === "ecosystem").covered, true);
+  assert.equal(mexicoAfter.pillars.find(pillar => pillar.id === "ecosystem").status, "healthy");
   assert.equal(mexicoAfter.coveredPillars, mexico.coveredPillars + 1);
   assert.equal(afterPayload.summary.gaps, payload.summary.gaps - 1);
 }
@@ -1028,5 +1061,6 @@ console.log("Worker smoke tests passed:", {
   bulkSourceImport: true,
   sourceProbe: true,
   bulkImportPreview: true,
-  sourceCoverage: true
+  sourceCoverage: true,
+  coverageHealthStates: true
 });
