@@ -1018,6 +1018,129 @@ async function sourceManager(request, env, ctx) {
 
   const action = String(body?.action || "");
 
+  if (action === "probe") {
+    let source;
+    try {
+      source = normalizeManagedSourceInput(body);
+    } catch (error) {
+      return sourceErrorResponse(error);
+    }
+
+    try {
+      const result = await inspectSource("probe", source);
+
+      if (!result.ok) {
+        return json({
+          ok: false,
+          error: "source_probe_failed",
+          status: result.status,
+          title: result.title,
+          durationMs: result.durationMs,
+          finalUrl: result.finalUrl
+        }, { status: 422 });
+      }
+
+      if (result.blocked) {
+        return json({
+          ok: false,
+          error: "source_probe_blocked",
+          status: result.status,
+          title: result.title,
+          durationMs: result.durationMs,
+          finalUrl: result.finalUrl
+        }, { status: 422 });
+      }
+
+      return json({
+        ok: true,
+        action,
+        source,
+        probe: {
+          status: result.status,
+          title: result.title,
+          textLength: result.textLength,
+          durationMs: result.durationMs,
+          finalUrl: result.finalUrl
+        }
+      });
+    } catch (error) {
+      return json({
+        ok: false,
+        error: "source_probe_failed",
+        detail: String(error?.message || error),
+        status: error?.httpStatus ?? null,
+        durationMs: error?.durationMs ?? null
+      }, { status: 422 });
+    }
+  }
+
+  if (action === "bulk_preview") {
+    const items = Array.isArray(body?.sources) ? body.sources.slice(0, 100) : [];
+    if (!items.length) {
+      return json({ ok: false, error: "bulk_sources_required" }, { status: 400 });
+    }
+    if ((body?.sources || []).length > 100) {
+      return json({ ok: false, error: "bulk_source_limit", limit: 100 }, { status: 413 });
+    }
+
+    const existingCatalog = await loadSourceCatalog(gate.db, { includeDisabled: true });
+    const knownUrls = new Set();
+    for (const entry of Object.values(existingCatalog)) {
+      try {
+        knownUrls.add(normalizeManagedSourceUrl(entry.url));
+      } catch {
+        knownUrls.add(String(entry.url || ""));
+      }
+    }
+
+    const valid = [];
+    const skipped = [];
+    const errors = [];
+    const batchUrls = new Set();
+
+    for (let index = 0; index < items.length; index += 1) {
+      const raw = items[index];
+      let source;
+
+      try {
+        source = normalizeManagedSourceInput(raw);
+      } catch (error) {
+        errors.push({
+          index,
+          label: String(raw?.label || ""),
+          url: String(raw?.url || ""),
+          error: String(error?.message || error)
+        });
+        continue;
+      }
+
+      if (knownUrls.has(source.url) || batchUrls.has(source.url)) {
+        skipped.push({
+          index,
+          label: source.label,
+          url: source.url,
+          reason: "duplicate_source_url"
+        });
+        continue;
+      }
+
+      batchUrls.add(source.url);
+      valid.push({ index, ...source });
+    }
+
+    return json({
+      ok: errors.length === 0,
+      action,
+      requested: items.length,
+      valid: valid.length,
+      skipped: skipped.length,
+      errors: errors.length,
+      validSources: valid,
+      skippedSources: skipped,
+      errorSources: errors
+    }, { status: errors.length ? 207 : 200 });
+  }
+
   if (action === "create") {
     let source;
     try {
