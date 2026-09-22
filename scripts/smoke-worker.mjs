@@ -80,6 +80,11 @@ class FakeStatement {
   }
 
   async all() {
+    if (this.sql.includes("SELECT source_id, checked_at, last_http_status, last_error") &&
+        this.sql.includes("FROM source_watch_state")) {
+      return { success: true, results: [...this.db.sourceStates] };
+    }
+
     if (this.sql.includes("FROM source_watch_state") && this.sql.includes("ORDER BY changed DESC")) {
       return { success: true, results: [] };
     }
@@ -124,6 +129,17 @@ class FakeStatement {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (this.sql.startsWith("INSERT INTO app_meta")) {
+      if (this.sql.includes("'last_source_watch_run'")) {
+        this.db.appMeta.last_source_watch_run = this.args[0];
+        return { success: true, meta: { changes: 1 } };
+      }
+      if (this.sql.includes("'last_source_watch_summary'")) {
+        this.db.appMeta.last_source_watch_summary = this.args[0];
+        return { success: true, meta: { changes: 1 } };
+      }
+    }
+
     if (this.sql.startsWith("UPDATE discovery_candidates")) {
       const [status, reviewedAt, reviewedBy, reviewNote, id] = this.args;
       const candidate = this.db.candidates.find(x => x.id === id);
@@ -156,6 +172,12 @@ class FakeD1 {
         actor: "test.user@example.com"
       })
     };
+    this.sourceStates = Object.keys(SOURCE_REGISTRY).map(source_id => ({
+      source_id,
+      checked_at: new Date().toISOString(),
+      last_http_status: 200,
+      last_error: null
+    }));
     this.candidates = [{
       id: 1,
       source_id: "mx-google-play",
@@ -176,6 +198,10 @@ class FakeD1 {
   prepare(sql) {
     return new FakeStatement(this, sql);
   }
+
+  async batch(statements) {
+    return Promise.all(statements.map(statement => statement.run()));
+  }
 }
 
 const data = loadRadarData();
@@ -186,6 +212,8 @@ for (const [id, source] of Object.entries(SOURCE_REGISTRY)) {
   assert.ok(marketIds.has(source.marketId), id + " references an unknown market");
   assert.match(source.url, /^https:\/\//, id + " source URL must use https");
   assert.ok(source.label, id + " source label is required");
+  assert.ok(Number.isInteger(source.cadenceHours) && source.cadenceHours > 0, id + " cadenceHours must be a positive integer");
+  assert.ok(["high", "medium", "low"].includes(source.priority), id + " priority must be high, medium or low");
 }
 
 const assets = {
@@ -351,6 +379,14 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const db = new FakeD1();
   const env = { ASSETS: assets, RADAR_DB: db };
 
+  const mexicoGoogle = db.sourceStates.find(row => row.source_id === "mx-google-play");
+  mexicoGoogle.checked_at = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
+  const timBrazil = db.sourceStates.find(row => row.source_id === "br-tim-prime");
+  timBrazil.checked_at = new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString();
+  timBrazil.last_http_status = 429;
+  timBrazil.last_error = "HTTP 429 from monitored source";
+
   const health = await call("/api/automation/health", { env, ctx: authenticatedCtx });
   assert.equal(health.status, 200);
   const healthPayload = await health.json();
@@ -360,6 +396,8 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   assert.equal(healthPayload.sources.blocked, 1);
   assert.equal(healthPayload.discovery.pending, 1);
   assert.equal(healthPayload.lastSummary.checked, 14);
+  assert.equal(healthPayload.sources.dueNow, 1);
+  assert.ok(healthPayload.sources.nextDueAt);
 
   const inbox = await call("/api/discovery/inbox?status=pending", { env, ctx: authenticatedCtx });
   assert.equal(inbox.status, 200);
@@ -401,6 +439,8 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const payload = await response.json();
   assert.equal(payload.sources.length, Object.keys(SOURCE_REGISTRY).length);
   assert.ok(payload.sources.every(source => marketIds.has(source.marketId)));
+  assert.ok(payload.sources.every(source => Number.isInteger(source.cadenceHours) && source.cadenceHours > 0));
+  assert.ok(payload.sources.every(source => ["high", "medium", "low"].includes(source.priority)));
 }
 
 {
@@ -483,6 +523,27 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
 
 
 {
+  const db = new FakeD1();
+  const env = { ASSETS: assets, RADAR_DB: db };
+  const pending = [];
+  const scheduledCtx = {
+    waitUntil(promise) {
+      pending.push(promise);
+    }
+  };
+
+  await worker.scheduled({}, env, scheduledCtx);
+  await Promise.all(pending);
+
+  const summary = JSON.parse(db.appMeta.last_source_watch_summary);
+  assert.equal(summary.cadenceAware, true);
+  assert.equal(summary.registered, Object.keys(SOURCE_REGISTRY).length);
+  assert.equal(summary.attempted, 0);
+  assert.equal(summary.skippedByCadence, Object.keys(SOURCE_REGISTRY).length);
+  assert.equal(summary.failed, 0);
+}
+
+{
   const response = await call("/api/not-real");
   assert.equal(response.status, 404);
 }
@@ -502,5 +563,6 @@ console.log("Worker smoke tests passed:", {
   discoveryInbox: true,
   rateLimitRetry: true,
   botChallengeDetection: true,
-  protectedSourceWatchReads: true
+  protectedSourceWatchReads: true,
+  cadenceScheduling: true
 });
