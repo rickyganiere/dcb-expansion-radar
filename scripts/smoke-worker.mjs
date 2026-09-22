@@ -472,6 +472,11 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   timBrazil.last_http_status = 429;
   timBrazil.last_error = "HTTP 429 from monitored source";
 
+  const mexicoRegulator = db.sourceStates.find(row => row.source_id === "mx-crt-mobile");
+  mexicoRegulator.checked_at = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
+  mexicoRegulator.last_http_status = 200;
+  mexicoRegulator.last_error = "Bot challenge page returned by monitored source";
+
   const health = await call("/api/automation/health", { env, ctx: authenticatedCtx });
   assert.equal(health.status, 200);
   const healthPayload = await health.json();
