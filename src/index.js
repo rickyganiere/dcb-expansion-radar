@@ -667,9 +667,9 @@ async function persistSourceFailure(db, id, entry, error, actor = "system") {
   return { error: message, httpStatus };
 }
 
-async function checkSourceById(id, env, actor = "manual") {
-  const entry = SOURCE_REGISTRY[id];
-  if (!entry) throw new Error("unknown_source");
+async function checkSourceById(id, env, actor = "manual", entryOverride = null) {
+  const entry = entryOverride || await findSourceEntry(id, env.RADAR_DB);
+  if (!entry || entry.enabled === false) throw new Error("unknown_source");
 
   try {
     const result = await inspectSource(id, entry);
@@ -729,7 +729,9 @@ function sourceIsDue(entry, state, nowMs = Date.now()) {
 
 async function loadSourceScheduleStates(db) {
   const result = await db.prepare(`SELECT
-      source_id, checked_at, last_http_status, last_error
+      source_id, baseline_hash, last_hash, changed,
+      last_http_status, last_duration_ms, last_title, last_error,
+      checked_at
     FROM source_watch_state`).all();
 
   return Object.fromEntries(
@@ -742,14 +744,15 @@ async function runAllSourceChecks(env, actor = "system", options = {}) {
     return { ok: false, error: "d1_not_configured", checked: 0, changed: 0, failed: 0 };
   }
 
-  const allIds = Object.keys(SOURCE_REGISTRY);
+  const catalog = await loadSourceCatalog(env.RADAR_DB);
+  const allIds = Object.keys(catalog);
   const respectCadence = options.respectCadence ?? actor === "cron";
   let ids = allIds;
 
   if (respectCadence) {
     const states = await loadSourceScheduleStates(env.RADAR_DB);
     const nowMs = Date.now();
-    ids = allIds.filter(id => sourceIsDue(SOURCE_REGISTRY[id], states[id], nowMs));
+    ids = allIds.filter(id => sourceIsDue(catalog[id], states[id], nowMs));
   }
 
   const concurrency = 3;
@@ -763,7 +766,7 @@ async function runAllSourceChecks(env, actor = "system", options = {}) {
       const id = ids[index];
 
       try {
-        const value = await checkSourceById(id, env, actor);
+        const value = await checkSourceById(id, env, actor, catalog[id]);
         results[index] = { status: "fulfilled", value };
       } catch (reason) {
         results[index] = { status: "rejected", reason };
@@ -838,23 +841,13 @@ async function automationHealth(request, env, ctx) {
   const discoveryCount = schemaVersion >= 3
     ? gate.db.prepare("SELECT COUNT(*) AS pending FROM discovery_candidates WHERE status = 'pending'").first()
     : Promise.resolve({ pending: 0 });
-  const scheduleStatesPromise = loadSourceScheduleStates(gate.db);
 
-  const [counts, runRow, summaryRow, discoveryRow, scheduleStates] = await Promise.all([
-    gate.db.prepare(`SELECT
-      COUNT(*) AS tracked,
-      SUM(CASE WHEN last_hash IS NOT NULL AND last_error IS NULL AND changed = 0 THEN 1 ELSE 0 END) AS healthy,
-      SUM(CASE WHEN changed = 1 THEN 1 ELSE 0 END) AS changed,
-      SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS failed,
-      SUM(CASE WHEN checked_at IS NULL THEN 1 ELSE 0 END) AS unchecked,
-      SUM(CASE WHEN last_http_status = 429 THEN 1 ELSE 0 END) AS rate_limited,
-      SUM(CASE WHEN lower(COALESCE(last_error,'')) LIKE '%bot challenge%' THEN 1 ELSE 0 END) AS blocked,
-      SUM(CASE WHEN checked_at IS NOT NULL AND julianday(checked_at) < julianday('now','-36 hours') THEN 1 ELSE 0 END) AS stale
-    FROM source_watch_state`).first(),
+  const [sourceCatalog, runRow, summaryRow, discoveryRow, scheduleStates] = await Promise.all([
+    loadSourceCatalog(gate.db),
     gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_run' LIMIT 1").first(),
     gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_summary' LIMIT 1").first(),
     discoveryCount,
-    scheduleStatesPromise
+    loadSourceScheduleStates(gate.db)
   ]);
 
   let lastSummary = null;
@@ -864,12 +857,28 @@ async function automationHealth(request, env, ctx) {
     lastSummary = null;
   }
 
-  const registryEntries = Object.entries(SOURCE_REGISTRY);
+  const registryEntries = Object.entries(sourceCatalog);
   const registryTotal = registryEntries.length;
-  const tracked = Number(counts?.tracked || 0);
-  const databaseUnchecked = Number(counts?.unchecked || 0);
-  const unchecked = Math.max(0, registryTotal - tracked) + databaseUnchecked;
   const nowMs = Date.now();
+
+  const statesForActiveSources = registryEntries.map(([id]) => scheduleStates[id]).filter(Boolean);
+  const tracked = statesForActiveSources.length;
+  const healthy = registryEntries.filter(([id]) => {
+    const state = scheduleStates[id];
+    return Boolean(state?.last_hash) && !state?.last_error && Number(state?.changed || 0) === 0;
+  }).length;
+  const changed = registryEntries.filter(([id]) => Number(scheduleStates[id]?.changed || 0) === 1).length;
+  const failed = registryEntries.filter(([id]) => Boolean(scheduleStates[id]?.last_error)).length;
+  const rateLimited = registryEntries.filter(([id]) => Number(scheduleStates[id]?.last_http_status || 0) === 429).length;
+  const blocked = registryEntries.filter(([id]) =>
+    /bot challenge/i.test(String(scheduleStates[id]?.last_error || ""))
+  ).length;
+  const stale = registryEntries.filter(([id]) => {
+    const raw = scheduleStates[id]?.checked_at;
+    const checkedAt = raw ? Date.parse(raw) : NaN;
+    return Number.isFinite(checkedAt) && checkedAt < nowMs - 36 * 60 * 60 * 1000;
+  }).length;
+  const unchecked = registryEntries.filter(([id]) => !scheduleStates[id]?.checked_at).length;
   const dueNow = registryEntries.filter(([id, entry]) =>
     sourceIsDue(entry, scheduleStates[id], nowMs)
   ).length;
@@ -888,13 +897,13 @@ async function automationHealth(request, env, ctx) {
     sources: {
       total: registryTotal,
       tracked,
-      healthy: Number(counts?.healthy || 0),
-      changed: Number(counts?.changed || 0),
-      failed: Number(counts?.failed || 0),
+      healthy,
+      changed,
+      failed,
       unchecked,
-      rateLimited: Number(counts?.rate_limited || 0),
-      blocked: Number(counts?.blocked || 0),
-      stale: Number(counts?.stale || 0),
+      rateLimited,
+      blocked,
+      stale,
       dueNow,
       nextDueAt: nextDueMs ? new Date(Math.max(nextDueMs, nowMs)).toISOString() : null
     },
@@ -1206,7 +1215,8 @@ async function reviewSourceChange(request, env, ctx) {
   const action = String(body?.action || "");
   const note = String(body?.note || "").slice(0, 500);
 
-  if (!SOURCE_REGISTRY[id]) {
+  const source = await findSourceEntry(id, gate.db, { includeDisabled: true });
+  if (!source) {
     return json({ ok: false, error: "unknown_source" }, { status: 404 });
   }
   if (action !== "accept") {
@@ -1248,7 +1258,8 @@ async function sourceWatchHistory(url, request, env, ctx) {
   if (gate.response) return gate.response;
 
   const id = String(url.searchParams.get("id") || "");
-  if (!SOURCE_REGISTRY[id]) {
+  const source = await findSourceEntry(id, gate.db, { includeDisabled: true });
+  if (!source) {
     return json({ ok: false, error: "unknown_source" }, { status: 404 });
   }
 
@@ -1301,17 +1312,23 @@ export default {
     }
 
     if (url.pathname === "/api/sources" && request.method === "GET") {
+      const catalog = await loadSourceCatalog(env.RADAR_DB);
       return json({
-        sources: Object.entries(SOURCE_REGISTRY).map(([id, entry]) => ({
+        sources: Object.entries(catalog).map(([id, entry]) => ({
           id,
           marketId: entry.marketId,
           label: entry.label,
           type: entry.type,
           url: entry.url,
           cadenceHours: entry.cadenceHours || 24,
-          priority: entry.priority || "medium"
+          priority: entry.priority || "medium",
+          origin: entry.origin || "core"
         }))
       });
+    }
+
+    if (url.pathname === "/api/source-manager" && (request.method === "GET" || request.method === "POST")) {
+      return sourceManager(request, env, ctx);
     }
 
     if (url.pathname === "/api/automation/health" && request.method === "GET") {
@@ -1347,8 +1364,9 @@ export default {
     }
 
     if (url.pathname === "/api/check-source" && request.method === "GET") {
-      const id = url.searchParams.get("id");
-      if (!id || !SOURCE_REGISTRY[id]) {
+      const id = String(url.searchParams.get("id") || "");
+      const entry = id ? await findSourceEntry(id, env.RADAR_DB) : null;
+      if (!entry) {
         return json({ ok: false, error: "unknown_source" }, { status: 404 });
       }
 
@@ -1362,9 +1380,8 @@ export default {
       }
 
       try {
-        return json(await checkSourceById(id, env, identity?.email || "manual"));
+        return json(await checkSourceById(id, env, identity?.email || "manual", entry));
       } catch (error) {
-        const entry = SOURCE_REGISTRY[id];
         return json({
           ok: false,
           id,
