@@ -1076,6 +1076,120 @@ async function sourceManager(request, env, ctx) {
     }, { status: 201 });
   }
 
+  if (action === "bulk_create") {
+    const items = Array.isArray(body?.sources) ? body.sources.slice(0, 100) : [];
+    if (!items.length) {
+      return json({ ok: false, error: "bulk_sources_required" }, { status: 400 });
+    }
+    if ((body?.sources || []).length > 100) {
+      return json({ ok: false, error: "bulk_source_limit", limit: 100 }, { status: 413 });
+    }
+
+    const existingCatalog = await loadSourceCatalog(gate.db, { includeDisabled: true });
+    const knownUrls = new Set();
+    for (const entry of Object.values(existingCatalog)) {
+      try {
+        knownUrls.add(normalizeManagedSourceUrl(entry.url));
+      } catch {
+        knownUrls.add(String(entry.url || ""));
+      }
+    }
+
+    const created = [];
+    const skipped = [];
+    const errors = [];
+    const batchUrls = new Set();
+
+    for (let index = 0; index < items.length; index += 1) {
+      const raw = items[index];
+      let source;
+
+      try {
+        source = normalizeManagedSourceInput(raw);
+      } catch (error) {
+        errors.push({
+          index,
+          label: String(raw?.label || ""),
+          url: String(raw?.url || ""),
+          error: String(error?.message || error)
+        });
+        continue;
+      }
+
+      if (knownUrls.has(source.url) || batchUrls.has(source.url)) {
+        skipped.push({
+          index,
+          label: source.label,
+          url: source.url,
+          reason: "duplicate_source_url"
+        });
+        continue;
+      }
+
+      const id = "custom-" + crypto.randomUUID();
+      const now = new Date().toISOString();
+
+      try {
+        await gate.db.prepare(`INSERT INTO monitored_sources (
+            source_id, market_id, label, url, source_type,
+            cadence_hours, priority, enabled, origin,
+            created_by, created_at, updated_at
+          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'imported', ?8, ?9, ?9)`)
+          .bind(
+            id,
+            source.marketId,
+            source.label,
+            source.url,
+            source.type,
+            source.cadenceHours,
+            source.priority,
+            gate.identity.email,
+            now
+          )
+          .run();
+
+        batchUrls.add(source.url);
+        knownUrls.add(source.url);
+        created.push({
+          index,
+          id,
+          ...source,
+          enabled: true,
+          origin: "imported"
+        });
+      } catch (error) {
+        const message = String(error?.message || error);
+        if (/unique constraint/i.test(message)) {
+          skipped.push({
+            index,
+            label: source.label,
+            url: source.url,
+            reason: "duplicate_source_url"
+          });
+        } else {
+          errors.push({
+            index,
+            label: source.label,
+            url: source.url,
+            error: message.slice(0, 300)
+          });
+        }
+      }
+    }
+
+    return json({
+      ok: errors.length === 0,
+      action,
+      requested: items.length,
+      created: created.length,
+      skipped: skipped.length,
+      errors: errors.length,
+      createdSources: created,
+      skippedSources: skipped,
+      errorSources: errors
+    }, { status: errors.length ? 207 : 200 });
+  }
+
   const id = String(body?.id || "");
   if (!id || SOURCE_REGISTRY[id]) {
     return json({ ok: false, error: "core_source_not_editable" }, { status: 400 });
