@@ -378,7 +378,14 @@ const SOURCE_COVERAGE_PILLARS = [
   }
 ];
 
-function buildSourceCoverage(catalog) {
+function sourceOperationalStatus(state) {
+  if (!state?.checked_at) return "unchecked";
+  if (state?.last_error) return "degraded";
+  if (Number(state?.changed || 0) === 1) return "review";
+  return "healthy";
+}
+
+function buildSourceCoverage(catalog, sourceStates = {}) {
   const entries = Object.values(catalog || {}).filter(source => source.enabled !== false);
   const markets = [...ALLOWED_SOURCE_MARKETS].sort();
 
@@ -386,12 +393,29 @@ function buildSourceCoverage(catalog) {
     const marketSources = entries.filter(source => source.marketId === marketId);
     const pillars = SOURCE_COVERAGE_PILLARS.map(pillar => {
       const matching = marketSources.filter(source => pillar.types.includes(source.type));
+      const sourceDetails = matching.map(source => ({
+        id: source.id,
+        status: sourceOperationalStatus(sourceStates[source.id])
+      }));
+      const statuses = sourceDetails.map(source => source.status);
+
+      let status = "gap";
+      if (matching.length) {
+        if (statuses.includes("healthy")) status = "healthy";
+        else if (statuses.includes("review")) status = "review";
+        else if (statuses.includes("degraded")) status = "degraded";
+        else status = "unchecked";
+      }
+
       return {
         id: pillar.id,
         label: pillar.label,
         covered: matching.length > 0,
+        operational: status === "healthy" || status === "review",
+        status,
         sourceCount: matching.length,
         sourceIds: matching.map(source => source.id),
+        sources: sourceDetails,
         suggestedType: pillar.suggestedType,
         suggestedCadenceHours: pillar.suggestedCadenceHours,
         suggestedPriority: pillar.suggestedPriority
@@ -399,6 +423,11 @@ function buildSourceCoverage(catalog) {
     });
 
     const covered = pillars.filter(pillar => pillar.covered).length;
+    const operational = pillars.filter(pillar => pillar.operational).length;
+    const healthy = pillars.filter(pillar => pillar.status === "healthy").length;
+    const atRisk = pillars.filter(pillar =>
+      pillar.status === "degraded" || pillar.status === "unchecked"
+    );
     const gaps = pillars
       .filter(pillar => !pillar.covered)
       .map(pillar => ({
@@ -413,10 +442,20 @@ function buildSourceCoverage(catalog) {
       marketId,
       activeSources: marketSources.length,
       coveredPillars: covered,
+      operationalPillars: operational,
+      healthyPillars: healthy,
+      atRiskPillars: atRisk.length,
       totalPillars: pillars.length,
       complete: covered === pillars.length,
+      operationalComplete: operational === pillars.length,
       pillars,
-      gaps
+      gaps,
+      atRisk: atRisk.map(pillar => ({
+        pillarId: pillar.id,
+        label: pillar.label,
+        status: pillar.status,
+        sourceIds: pillar.sourceIds
+      }))
     };
   });
 }
@@ -1485,10 +1524,16 @@ async function sourceCoverage(request, env, ctx) {
   const schemaVersion = await getSchemaVersion(gate.db);
   if (schemaVersion < 4) return migrationRequired(schemaVersion, 4);
 
-  const catalog = await loadSourceCatalog(gate.db);
-  const markets = buildSourceCoverage(catalog);
+  const [catalog, sourceStates] = await Promise.all([
+    loadSourceCatalog(gate.db),
+    loadSourceScheduleStates(gate.db)
+  ]);
+  const markets = buildSourceCoverage(catalog, sourceStates);
   const gaps = markets.flatMap(market =>
     market.gaps.map(gap => ({ marketId: market.marketId, ...gap }))
+  );
+  const atRisk = markets.flatMap(market =>
+    market.atRisk.map(item => ({ marketId: market.marketId, ...item }))
   );
 
   return json({
@@ -1501,11 +1546,14 @@ async function sourceCoverage(request, env, ctx) {
     summary: {
       markets: markets.length,
       completeMarkets: markets.filter(market => market.complete).length,
+      operationalCompleteMarkets: markets.filter(market => market.operationalComplete).length,
       gaps: gaps.length,
+      atRisk: atRisk.length,
       activeSources: Object.keys(catalog).length
     },
     markets,
-    gaps
+    gaps,
+    atRisk
   });
 }
 
