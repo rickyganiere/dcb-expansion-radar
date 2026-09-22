@@ -243,7 +243,7 @@ class FakeD1 {
   constructor() {
     this.row = null;
     this.appMeta = {
-      schema_version: "5",
+      schema_version: "6",
       last_source_watch_run: "2026-09-21T23:04:18.973Z",
       last_source_watch_summary: JSON.stringify({
         ok: true,
@@ -484,7 +484,7 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const health = await call("/api/automation/health", { env, ctx: authenticatedCtx });
   assert.equal(health.status, 200);
   const healthPayload = await health.json();
-  assert.equal(healthPayload.schemaVersion, 5);
+  assert.equal(healthPayload.schemaVersion, 6);
   assert.equal(healthPayload.sources.total, 14);
   assert.equal(healthPayload.sources.rateLimited, 1);
   assert.equal(healthPayload.sources.blocked, 1);
