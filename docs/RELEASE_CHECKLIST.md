@@ -112,6 +112,8 @@ Expected behavior:
 - HTTP 429 shows `Rate limited`;
 - HTTP 5xx shows `Check failed`;
 - bot challenge HTML shows `Bot challenge`;
+- binary/PDF responses are rejected;
+- responses above 2 MB are rejected;
 - changed fingerprints create Discovery Inbox candidates;
 - repeated checks with the same changed hash do not duplicate candidates.
 
