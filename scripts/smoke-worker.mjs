@@ -667,7 +667,8 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
       id: customId,
       label: "Updated operator billing page",
       cadenceHours: 72,
-      priority: "medium"
+      priority: "medium",
+      entityTags: ["Telcel", "Digital Virgo"]
     }
   });
   assert.equal(update.status, 200);
@@ -675,6 +676,20 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   assert.equal(updatePayload.source.label, "Updated operator billing page");
   assert.equal(updatePayload.source.cadenceHours, 72);
   assert.deepEqual(updatePayload.source.entityTags, ["Telcel", "Digital Virgo"]);
+
+  const preserveTags = await call("/api/source-manager", {
+    env,
+    ctx: authenticatedCtx,
+    method: "POST",
+    body: {
+      action: "update",
+      id: customId,
+      label: "Updated operator billing page v2"
+    }
+  });
+  assert.equal(preserveTags.status, 200);
+  const preserveTagsPayload = await preserveTags.json();
+  assert.deepEqual(preserveTagsPayload.source.entityTags, ["Telcel", "Digital Virgo"]);
 
   const disable = await call("/api/source-manager", {
     env,
