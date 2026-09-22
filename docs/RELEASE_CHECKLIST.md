@@ -3,50 +3,44 @@
 Production branch: `main`  
 Staging branch: `feature/radar-next`
 
-Do not merge the feature branch before both pending D1 migrations are applied.
+Do not merge before all pending D1 migrations are applied.
 
-## 1. Validate the feature branch
-
+## 1. Validate branch
 Required:
-- GitHub Actions validation passes.
-- JavaScript syntax checks pass.
-- D1 schema validation reports version 5.
-- Worker smoke tests pass.
-- Required static assets are present.
-- No Supabase references remain in active code.
+- GitHub Actions green.
+- JavaScript syntax green.
+- D1 schema validation = version 7.
+- Worker smoke tests green.
+- Publisher Discovery smoke tests green.
+- App Discovery smoke tests green.
+- Required static assets present.
 
 ## 2. Apply migration 0003
-
-Open production D1 and execute the exact contents of:
-
 ```text
 migrations/0003_discovery_inbox.sql
 ```
 
-This creates `discovery_candidates`, resets known challenge-page baselines and advances the schema to version 3.
-
 ## 3. Apply migration 0004
-
-Then execute the exact contents of:
-
 ```text
 migrations/0004_monitored_sources.sql
 ```
 
-This creates `monitored_sources` and advances the schema to version 5.
-
 ## 4. Apply migration 0005
-
-Then execute the exact contents of:
-
 ```text
 migrations/0005_source_entity_tags.sql
 ```
 
-This adds operator / partner tags to managed sources and advances the schema to version 5.
+## 5. Apply migration 0006
+```text
+migrations/0006_commercial_entities.sql
+```
 
-## 5. Verify schema
+## 6. Apply migration 0007
+```text
+migrations/0007_app_discovery_queue.sql
+```
 
+## 7. Verify schema
 Run:
 
 ```sql
@@ -58,133 +52,100 @@ WHERE key = 'schema_version';
 Expected:
 
 ```text
-schema_version | 4
+schema_version | 7
 ```
 
-Also verify the new tables exist:
+Verify tables:
 
 ```sql
 SELECT name
 FROM sqlite_master
 WHERE type = 'table'
-  AND name IN ('discovery_candidates','monitored_sources')
+  AND name IN (
+    'discovery_candidates',
+    'monitored_sources',
+    'commercial_entities',
+    'commercial_assets',
+    'app_discovery_seeds',
+    'app_discovery_queue'
+  )
 ORDER BY name;
 ```
 
-Expected:
-- `discovery_candidates`
-- `monitored_sources`
+Expected all six tables.
 
-## 6. Merge once
+## 8. Merge once
+Merge `feature/radar-next` into `main` only after schema version 7 is confirmed.
 
-Merge `feature/radar-next` into `main` only after schema version 5 is confirmed.
+This single merge is the production deployment trigger.
 
-This single merge is the production release trigger.
-
-## 7. Post-deploy checks
-
-Open the production Radar and verify:
-- Cloudflare Access login still works.
-- API badge shows `API + D1 v5 online`.
+## 9. Post-deploy checks
+Open production Radar and verify:
+- Cloudflare Access works.
+- API badge shows `API + D1 v7 online`.
+- Workspace sync works.
 - Automation Health loads.
 - Source Watch loads central authenticated state.
-- Discovery Inbox loads without database errors.
+- Discovery Inbox loads.
 - Manage Sources opens.
-- Workspace D1 sync shows the authenticated user.
-- Pipeline/shortlist changes persist after refresh.
+- Publisher Discovery loads.
+- Store Discovery Seeds panel loads.
+- Pipeline/shortlist persist after refresh.
 
-## 8. Coverage gaps
+## 10. Coverage / Source Manager checks
+Verify:
+- all six markets appear in Coverage gaps;
+- Healthy / Review / Degraded / Unchecked / Gap behave correctly;
+- Attention Queue explains each priority;
+- Test source works;
+- Preview import does not write;
+- CSV import/export works;
+- entity tags persist;
+- disabled sources stop scanning without losing history.
 
-Open **Manage sources** and verify the Coverage gaps panel and **Attention Queue**:
-- all six markets are listed;
-- Billing evidence / Market-regulatory / Commercial ecosystem are shown separately;
-- missing pillars expose **Add source**;
-- selecting a gap pre-fills market, type, cadence and priority;
-- a failing source shows Degraded rather than Healthy;
-- a new source with no successful check shows Unchecked;
-- Attention Queue lists a reason and suggested source parameters;
-- billing gaps/degraded billing appear before lower-impact ecosystem gaps;
-- after adding and successfully checking a matching source, that gap closes without affecting the other pillars.
-
-## 9. Source Manager test
-
-Open **Manage sources**.
-
-Verify **Test source**, **Preview import**, **Import CSV**, **Export CSV** and **CSV template** are visible.
-
-Create one temporary public HTTPS source with:
-- valid market
-- valid source type
-- cadence
-- priority
+## 11. Publisher Discovery test
+Paste one real Google Play or Apple App Store listing.
 
 Verify:
-- it appears as custom and enabled;
-- it appears in Source Watch;
-- changing cadence updates immediately;
-- disabling it removes it from active Source Watch;
-- it remains listed in Source Manager as disabled;
-- core sources do not expose destructive edit controls;
-- a small CSV import reports created/skipped/errors correctly;
-- Preview import reports valid/skipped/errors without writing records;
-- Test source succeeds on a normal HTML page and rejects a bot/security challenge;
-- duplicate URLs are skipped;
-- entity tags can be created and edited;
-- updating a source without the tag field preserves existing tags;
-- bulk CSV imports semicolon-separated entity tags;
-- export CSV contains entity tags for custom sources.
+- app name extracted;
+- developer/company extracted when available;
+- developer/support/privacy domains mapped;
+- social links do not become primary publisher domain;
+- candidate appears in Publisher Discovery;
+- role can change Publisher → Advertiser / Network / Both;
+- Qualify / Dismiss / Reopen work;
+- Add to pipeline creates the same target in the commercial pipeline.
 
-The temporary source can remain disabled after the test so history is preserved.
+## 12. Store Discovery test
+Create one seed or install a VAS preset pack for one market.
 
-## 10. Manual Source Watch test
+Run **Run discovery now**.
 
+Verify:
+- seed reports found/new/existing apps;
+- app URLs appear in queue;
+- Process queue creates publisher candidates;
+- duplicate app URLs do not duplicate queue rows;
+- failed app listing can be retried;
+- scheduled summary does not overload store endpoints.
+
+## 13. Source Watch test
 Run **Check all sources**.
 
-Expected behavior:
-- successful sources show `No change` unless fingerprint changed;
-- HTTP 429 shows `Rate limited`;
-- HTTP 5xx shows `Check failed`;
-- bot challenge HTML shows `Bot challenge`;
-- binary/PDF responses are rejected;
-- responses above 2 MB are rejected;
-- changed fingerprints create Discovery Inbox candidates;
-- repeated checks with the same changed hash do not duplicate candidates.
+Expected:
+- successful source → No change or changed fingerprint;
+- HTTP 429 → Rate limited;
+- HTTP 5xx → Check failed;
+- bot challenge → Bot challenge;
+- binary/PDF and >2 MB responses rejected;
+- changed hash creates one review candidate.
 
-## 11. Cadence verification
-
-Automation Health should show **Due now**.
-
-A scheduled run should:
-- attempt only due sources;
-- write `skippedByCadence` in the run summary;
-- respect at least 24h backoff after 429;
-- respect at least 72h backoff after bot challenge.
-
-Manual **Check all sources** intentionally ignores cadence.
-
-## 12. Database verification
-
-Check:
-
-```sql
-SELECT key, value
-FROM app_meta
-WHERE key IN (
-  'schema_version',
-  'last_source_watch_run',
-  'last_source_watch_summary'
-);
-```
-
-Then:
-
+## 14. Database verification
 ```sql
 SELECT status, COUNT(*) AS count
 FROM discovery_candidates
 GROUP BY status;
 ```
-
-And:
 
 ```sql
 SELECT enabled, COUNT(*) AS count
@@ -192,15 +153,25 @@ FROM monitored_sources
 GROUP BY enabled;
 ```
 
-## 13. Release complete
+```sql
+SELECT primary_role, status, COUNT(*) AS count
+FROM commercial_entities
+GROUP BY primary_role, status
+ORDER BY primary_role, status;
+```
 
-Only mark the release complete when:
-- branch CI is green;
-- schema version is 4;
-- production deployment is healthy;
+```sql
+SELECT scan_status, COUNT(*) AS count
+FROM app_discovery_queue
+GROUP BY scan_status;
+```
+
+## 15. Release complete
+Only mark complete when:
+- schema version = 7;
+- production deploy healthy;
 - D1 workspace persistence works;
 - Source Watch works;
-- cadence scheduling works;
-- Discovery Inbox works;
-- Source Manager works;
-- no unexpected 5xx errors appear in the UI.
+- Publisher Discovery works;
+- automated Store Discovery works;
+- no unexpected 5xx errors appear.
