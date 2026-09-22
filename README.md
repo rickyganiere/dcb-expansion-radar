@@ -41,6 +41,7 @@ Production remains on `main`. New development is prepared on `feature/radar-next
 - D1 Source Manager for adding/editing/disabling custom monitored sources
 - bulk CSV import/export for source operations
 - source preflight testing and no-write bulk import preview
+- per-market source coverage-gap matrix for billing, regulatory and commercial ecosystem evidence
 - Per-market commercial notes
 - Workspace backup/restore
 - Shareable market deep links
