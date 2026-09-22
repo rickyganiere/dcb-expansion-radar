@@ -95,7 +95,14 @@ Target: `main`
 - Duplicate URLs are skipped instead of duplicated.
 - Custom sources feed Source Watch and Discovery Inbox but never auto-promote to verified intelligence.
 
-### 8. D1 schema v4
+### 8. Source entity tags
+- D1-managed sources can be tagged with up to 12 operators / partners.
+- Tags are available in create, update, bulk import, CSV export and the active source API.
+- Missing `entityTags` on update preserves the current tags.
+- Bulk CSV uses semicolon-separated entity tags.
+- Core sources remain valid without tags and can be enriched later.
+
+### 9. D1 schema v5
 Migration 0003 adds:
 - `discovery_candidates`
 
@@ -103,20 +110,20 @@ Migration 0004 adds:
 - `monitored_sources`
 
 Migration 0003 also clears known anti-bot baselines before writing schema version 3.
-Migration 0004 advances the schema to version 4.
+Migration 0004 advances the schema to version 5.
 
-### 9. Product copy / UI cleanup
+### 10. Product copy / UI cleanup
 - Removed stale “prototype” and old-backend language.
 - Workflow copy reflects D1 persistence, Discovery Inbox and automation.
 - Pipeline copy reflects local fallback + D1 sync.
 - Product status presents the tool as an operational intelligence workspace.
 - Operational panels refresh together after checks/reviews/source changes.
 
-### 10. Testing
+### 11. Testing
 CI validates feature branches and covers:
 - intelligence data
 - JavaScript syntax
-- D1 schema v4
+- D1 schema v5
 - required assets
 - workspace persistence
 - optimistic concurrency
@@ -141,7 +148,7 @@ CI validates feature branches and covers:
 1. Confirm branch CI is green.
 2. Apply migration `0003_discovery_inbox.sql` to production D1.
 3. Apply migration `0004_monitored_sources.sql` to production D1.
-4. Verify `schema_version = 4`.
+4. Verify `schema_version = 5`.
 5. Merge `feature/radar-next` to `main` once.
 6. Wait for one Cloudflare production deployment.
 7. Run post-deploy checks from `docs/RELEASE_CHECKLIST.md`.
