@@ -1,6 +1,6 @@
 # DCB Expansion Radar
 
-DCB Expansion Radar is a market-expansion intelligence workspace for DCB, VAS and OTT teams.
+DCB Expansion Radar is a market-expansion and publisher-discovery intelligence workspace for DCB, VAS and OTT teams.
 
 ## Current phase
 
@@ -44,6 +44,10 @@ Production remains on `main`. New development is prepared on `feature/radar-next
 - source preflight testing and no-write bulk import preview
 - per-market source coverage-gap matrix for billing, regulatory and commercial ecosystem evidence
 - operational coverage health states and explainable Attention Queue
+- Publisher Discovery from App Store / Google Play developers and linked domains
+- unified Publisher / Advertiser / Network / Both commercial entity graph
+- scheduled Store Discovery Seeds and app queue
+- VAS keyword preset packs per LATAM market
 - Per-market commercial notes
 - Workspace backup/restore
 - Shareable market deep links
@@ -94,6 +98,10 @@ Cloudflare Worker
         |       |- source_watch_history
         |       |- discovery_candidates
         |       |- monitored_sources
+        |       |- commercial_entities
+        |       |- commercial_assets
+        |       |- app_discovery_seeds
+        |       |- app_discovery_queue
         |       |- app_meta
         |
         +----> Cloudflare Access
@@ -107,7 +115,7 @@ Static market intelligence remains versioned in GitHub until automatic discovery
 
 ## D1 schema
 
-Current prepared schema version: **5**.
+Current prepared schema version: **7**.
 
 ### Migration 0001
 - `workspace_state`
@@ -125,6 +133,14 @@ Current prepared schema version: **5**.
 
 ### Migration 0005
 - `entity_tags_json` on `monitored_sources`
+
+### Migration 0006
+- `commercial_entities`
+- `commercial_assets`
+
+### Migration 0007
+- `app_discovery_seeds`
+- `app_discovery_queue`
 
 Workspace writes use optimistic versioning. A stale client receives `409 version_conflict` instead of silently overwriting newer cloud state.
 
@@ -167,6 +183,11 @@ Core endpoints:
 - `POST /api/discovery/review`
 - `GET /api/source-manager`
 - `POST /api/source-manager`
+- `GET /api/publisher-discovery`
+- `POST /api/publisher-discovery/scan-app`
+- `POST /api/publisher-discovery/review`
+- `GET /api/app-discovery`
+- `POST /api/app-discovery`
 
 D1 workspace and review actions require a verified Cloudflare Access identity.
 
@@ -187,6 +208,8 @@ public/
   automation-health.js
   discovery-inbox.js
   source-manager.js
+  publisher-discovery.js
+  app-discovery.js
   market-notes.js
   followup-alerts.js
   market-report.js
@@ -194,15 +217,22 @@ src/
   index.js
   access-auth.js
   source-registry.js
+  publisher-discovery.js
+  app-discovery.js
 migrations/
   0001_workspace.sql
   0002_source_watch.sql
   0003_discovery_inbox.sql
   0004_monitored_sources.sql
+  0005_source_entity_tags.sql
+  0006_commercial_entities.sql
+  0007_app_discovery_queue.sql
 scripts/
   validate-data.mjs
   validate-d1.mjs
   smoke-worker.mjs
+  smoke-publisher-discovery.mjs
+  smoke-app-discovery.mjs
 docs/
   D1_SETUP.md
   RELEASE_CHECKLIST.md
