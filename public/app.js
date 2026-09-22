@@ -366,6 +366,9 @@ Ricky`;
     renderPipelineCount();
   }
 
+  window.RADAR_ADD_PIPELINE = addPipeline;
+  window.RADAR_OPEN_PIPELINE = openPipeline;
+
   function openPipeline() {
     const entries = Object.values(state.pipeline);
     const stages = ["New","Researching","Contacted","Follow-up","Partnering","Closed"];
@@ -387,7 +390,9 @@ Ricky`;
           <tbody>
             ${entries.map(e => `<tr>
               <td><strong>${esc(e.name)}</strong><br><small>${esc(e.company || "")} · ${esc(e.title || e.role || e.type || "")}</small></td>
-              <td><button class="btn tiny" data-open="${esc(e.marketId)}">${esc(data.markets.find(m=>m.id===e.marketId)?.name || e.marketId)}</button></td>
+              <td>${e.marketId && data.markets.some(m=>m.id===e.marketId)
+                ? `<button class="btn tiny" data-open="${esc(e.marketId)}">${esc(data.markets.find(m=>m.id===e.marketId)?.name || e.marketId)}</button>`
+                : `<span class="status">${esc(e.marketId || "Global")}</span>`}</td>
               <td>
                 <select class="input pipeStatus" data-pipe-key="${esc(e.key)}">
                   ${stages.map(stage => `<option ${stage===e.status?"selected":""}>${stage}</option>`).join("")}
@@ -429,7 +434,7 @@ Ricky`;
     const entries = Object.values(state.pipeline);
     const rows = [["Target","Market","Company","Title/Role","Status","Next follow-up","Notes"], ...entries.map(e => [
       e.name,
-      data.markets.find(m=>m.id===e.marketId)?.name || e.marketId,
+      data.markets.find(m=>m.id===e.marketId)?.name || e.marketId || "Global",
       e.company || e.name,
       e.title || e.role || "",
       e.status,
