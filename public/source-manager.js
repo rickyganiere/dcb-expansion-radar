@@ -85,7 +85,11 @@
         url: row.url || "",
         type: row.type || "billing_route",
         cadenceHours: Number(row.cadencehours || row.cadence || 24),
-        priority: row.priority || "medium"
+        priority: row.priority || "medium",
+        entityTags: String(row.entitytags || row.tags || "")
+          .split(/[;|]/)
+          .map(tag => tag.trim())
+          .filter(Boolean)
       };
     });
   }
@@ -156,7 +160,8 @@
       url: "",
       type: "billing_route",
       cadenceHours: 24,
-      priority: "medium"
+      priority: "medium",
+      entityTags: []
     };
   }
 
@@ -181,6 +186,7 @@
           '<option value="' + priority + '"' + (priority === value.priority ? " selected" : "") + ">" + priority + "</option>"
         ).join("") +
       '</select></label>' +
+      '<label style="grid-column:1/-1">Operators / Partners<input class="input" id="sourceEntityTags" value="' + esc((value.entityTags || []).join(", ")) + '" placeholder="Telcel, AT&T Mexico, Digital Virgo"></label>' +
       '<div class="sourceManagerFormActions">' +
         '<button class="btn ghost" id="probeManagedSource" type="button">Test source</button>' +
         '<button class="btn primary" id="saveManagedSource" type="button">' + (source ? "Save source" : "Add source") + '</button>' +
@@ -289,7 +295,9 @@
       : '<div class="rowActions"><span class="sourceManagerHint">Protected core source</span></div>';
 
     return '<div class="card sourceManagerRow ' + (!source.enabled ? "disabled" : "") + '">' +
-      '<div class="sourceManagerName"><strong>' + esc(source.label) + '</strong><small>' + esc(source.url) + '</small></div>' +
+      '<div class="sourceManagerName"><strong>' + esc(source.label) + '</strong><small>' + esc(source.url) + '</small>' +
+        ((source.entityTags || []).length ? '<div class="sourceManagerHint">Entities: ' + esc(source.entityTags.join(", ")) + '</div>' : '') +
+      '</div>' +
       '<div class="sourceManagerMeta"><strong>' + esc(source.marketId) + '</strong><br>' + esc(typeLabel(source.type)) + '</div>' +
       '<div class="sourceManagerMeta">' + esc(cadenceLabel(source.cadenceHours)) + '<br>' + esc(source.priority || "medium") + ' priority</div>' +
       '<div><span class="sourceOrigin ' + esc(origin) + '">' + esc(origin) + '</span><div class="sourceManagerHint">' + (source.enabled ? "Enabled" : "Disabled") + '</div></div>' +
@@ -321,7 +329,7 @@
       formHtml(editing) +
       '<div class="card sourceManagerBulk">' +
         '<div class="eyebrow">Bulk sources</div>' +
-        '<p class="sourceManagerHint">CSV columns: marketId,label,url,type,cadenceHours,priority. Up to 100 rows per import.</p>' +
+        '<p class="sourceManagerHint">CSV columns: marketId,label,url,type,cadenceHours,priority,entityTags. Separate multiple entity tags with semicolons. Up to 100 rows per import.</p>' +
         '<textarea class="input" id="bulkSourceText" placeholder="marketId,label,url,type,cadenceHours,priority\nmexico,Operator billing,https://example.com/billing,billing_route,24,high"></textarea>' +
         '<div class="sourceManagerBulkActions">' +
           '<button class="btn ghost" id="previewBulkSources" type="button">Preview import</button>' +
@@ -360,6 +368,7 @@
         document.getElementById("sourcePriority").value = priority;
         document.getElementById("sourceLabel").value = label + " source";
         document.getElementById("sourceUrl").value = "";
+        document.getElementById("sourceEntityTags").value = "";
         document.getElementById("sourceUrl")?.focus();
         document.getElementById("sourceManagerError").textContent =
           "Gap selected · add a public HTTPS source, then use Test source.";
@@ -402,7 +411,11 @@
       url: document.getElementById("sourceUrl")?.value || "",
       type: document.getElementById("sourceType")?.value || "",
       cadenceHours: Number(document.getElementById("sourceCadence")?.value || 24),
-      priority: document.getElementById("sourcePriority")?.value || "medium"
+      priority: document.getElementById("sourcePriority")?.value || "medium",
+      entityTags: String(document.getElementById("sourceEntityTags")?.value || "")
+        .split(/[;,]/)
+        .map(tag => tag.trim())
+        .filter(Boolean)
     };
   }
 
@@ -537,7 +550,7 @@
   }
 
   function exportCsv() {
-    const headers = ["id","marketId","label","url","type","cadenceHours","priority","enabled","origin"];
+    const headers = ["id","marketId","label","url","type","cadenceHours","priority","entityTags","enabled","origin"];
     const rows = [headers.join(",")].concat(
       cachedSources.map(source => [
         source.id,
@@ -547,6 +560,7 @@
         source.type,
         source.cadenceHours,
         source.priority,
+        (source.entityTags || []).join(";"),
         source.enabled ? 1 : 0,
         source.origin
       ].map(csvEscape).join(","))
@@ -556,8 +570,8 @@
 
   function downloadTemplate() {
     const text = [
-      "marketId,label,url,type,cadenceHours,priority",
-      'mexico,"Example billing page","https://example.com/billing",billing_route,24,high'
+      "marketId,label,url,type,cadenceHours,priority,entityTags",
+      'mexico,"Example billing page","https://example.com/billing",billing_route,24,high,"Telcel;AT&T Mexico"'
     ].join("\n");
     downloadText("dcb-radar-source-template.csv", text, "text/csv");
   }
