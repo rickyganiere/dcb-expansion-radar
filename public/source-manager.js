@@ -12,6 +12,83 @@
     }[c]));
   }
 
+  function csvEscape(value) {
+    const text = String(value ?? "");
+    return '"' + text.replace(/"/g, '""') + '"';
+  }
+
+  function downloadText(filename, text, type = "text/plain") {
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function parseCsvLine(line) {
+    const out = [];
+    let current = "";
+    let quoted = false;
+
+    for (let i = 0; i < line.length; i += 1) {
+      const ch = line[i];
+      if (quoted) {
+        if (ch === '"' && line[i + 1] === '"') {
+          current += '"';
+          i += 1;
+        } else if (ch === '"') {
+          quoted = false;
+        } else {
+          current += ch;
+        }
+      } else if (ch === '"') {
+        quoted = true;
+      } else if (ch === ",") {
+        out.push(current);
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+    out.push(current);
+    return out.map(value => value.trim());
+  }
+
+  function parseBulkText(text) {
+    const lines = String(text || "")
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    if (!lines.length) return [];
+
+    const first = parseCsvLine(lines[0]).map(x => x.toLowerCase());
+    const hasHeader = first.includes("url") && first.includes("label");
+    const headers = hasHeader
+      ? first
+      : ["marketid","label","url","type","cadencehours","priority"];
+
+    const start = hasHeader ? 1 : 0;
+    return lines.slice(start).map(line => {
+      const values = parseCsvLine(line);
+      const row = {};
+      headers.forEach((header, index) => {
+        row[header] = values[index] ?? "";
+      });
+
+      return {
+        marketId: row.marketid || row.market || "",
+        label: row.label || "",
+        url: row.url || "",
+        type: row.type || "billing_route",
+        cadenceHours: Number(row.cadencehours || row.cadence || 24),
+        priority: row.priority || "medium"
+      };
+    });
+  }
+
   function cadenceLabel(hours) {
     const value = Number(hours || 24);
     if (value === 12) return "Every 12h";
@@ -37,7 +114,7 @@
     const style = document.createElement("style");
     style.id = "sourceManagerStyles";
     style.textContent =
-      ".sourceManagerDialog{width:min(1040px,95vw);max-height:90vh}.sourceManagerBody{padding:22px}.sourceManagerTop{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.sourceManagerTop h2{margin:5px 0}.sourceManagerTop p{color:var(--muted);font-size:11px;line-height:1.55;margin:0}.sourceManagerCounts{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}.sourceManagerCount{font-size:10px;padding:6px 8px;border:1px solid #29455a;border-radius:999px;color:#b9c8d5}.sourceManagerForm{display:grid;grid-template-columns:1.1fr 1.5fr 2.2fr 1.2fr 1fr 1fr;gap:8px;align-items:end;padding:13px;margin:12px 0}.sourceManagerForm label{display:grid;gap:5px;color:var(--muted);font-size:9px}.sourceManagerForm .input{width:100%;min-width:0}.sourceManagerFormActions{display:flex;gap:7px;grid-column:1/-1}.sourceManagerList{display:grid;gap:8px;margin-top:12px}.sourceManagerRow{display:grid;grid-template-columns:minmax(160px,1.6fr) minmax(120px,.8fr) minmax(110px,.7fr) minmax(90px,.6fr) auto;gap:10px;align-items:center;padding:12px}.sourceManagerRow.disabled{opacity:.58}.sourceManagerName strong{display:block;font-size:12px}.sourceManagerName small{display:block;color:var(--muted);font-size:9px;margin-top:4px;word-break:break-all}.sourceManagerMeta{font-size:10px;color:#c7d5df}.sourceOrigin{display:inline-flex;padding:4px 7px;border:1px solid #29455a;border-radius:999px;font-size:9px;text-transform:uppercase}.sourceOrigin.core{color:#8db5ff}.sourceOrigin.manual,.sourceOrigin.imported{color:#81efd3}.sourceManagerError{color:#ffb2b2;font-size:10px;margin-top:8px}.sourceManagerHint{color:var(--muted);font-size:9px;margin-top:5px}@media(max-width:900px){.sourceManagerForm{grid-template-columns:repeat(2,1fr)}.sourceManagerRow{grid-template-columns:1fr 1fr}.sourceManagerRow .rowActions{grid-column:1/-1}}@media(max-width:620px){.sourceManagerForm{grid-template-columns:1fr}.sourceManagerRow{grid-template-columns:1fr}.sourceManagerTop{display:block}.sourceManagerTop .btn{margin-top:10px}}";
+      ".sourceManagerDialog{width:min(1040px,95vw);max-height:90vh}.sourceManagerBody{padding:22px}.sourceManagerBulk{margin:12px 0;padding:13px}.sourceManagerBulk textarea{width:100%;min-height:130px;resize:vertical}.sourceManagerBulkActions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.sourceManagerBulkReport{margin-top:8px;font-size:10px;color:var(--muted)}.sourceManagerTop{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.sourceManagerTop h2{margin:5px 0}.sourceManagerTop p{color:var(--muted);font-size:11px;line-height:1.55;margin:0}.sourceManagerCounts{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}.sourceManagerCount{font-size:10px;padding:6px 8px;border:1px solid #29455a;border-radius:999px;color:#b9c8d5}.sourceManagerForm{display:grid;grid-template-columns:1.1fr 1.5fr 2.2fr 1.2fr 1fr 1fr;gap:8px;align-items:end;padding:13px;margin:12px 0}.sourceManagerForm label{display:grid;gap:5px;color:var(--muted);font-size:9px}.sourceManagerForm .input{width:100%;min-width:0}.sourceManagerFormActions{display:flex;gap:7px;grid-column:1/-1}.sourceManagerList{display:grid;gap:8px;margin-top:12px}.sourceManagerRow{display:grid;grid-template-columns:minmax(160px,1.6fr) minmax(120px,.8fr) minmax(110px,.7fr) minmax(90px,.6fr) auto;gap:10px;align-items:center;padding:12px}.sourceManagerRow.disabled{opacity:.58}.sourceManagerName strong{display:block;font-size:12px}.sourceManagerName small{display:block;color:var(--muted);font-size:9px;margin-top:4px;word-break:break-all}.sourceManagerMeta{font-size:10px;color:#c7d5df}.sourceOrigin{display:inline-flex;padding:4px 7px;border:1px solid #29455a;border-radius:999px;font-size:9px;text-transform:uppercase}.sourceOrigin.core{color:#8db5ff}.sourceOrigin.manual,.sourceOrigin.imported{color:#81efd3}.sourceManagerError{color:#ffb2b2;font-size:10px;margin-top:8px}.sourceManagerHint{color:var(--muted);font-size:9px;margin-top:5px}@media(max-width:900px){.sourceManagerForm{grid-template-columns:repeat(2,1fr)}.sourceManagerRow{grid-template-columns:1fr 1fr}.sourceManagerRow .rowActions{grid-column:1/-1}}@media(max-width:620px){.sourceManagerForm{grid-template-columns:1fr}.sourceManagerRow{grid-template-columns:1fr}.sourceManagerTop{display:block}.sourceManagerTop .btn{margin-top:10px}}";
     document.head.appendChild(style);
   }
 
@@ -152,10 +229,24 @@
         '<span class="sourceManagerCount">' + esc(payload.counts?.disabled || 0) + ' disabled</span>' +
       '</div>' +
       formHtml(editing) +
+      '<div class="card sourceManagerBulk">' +
+        '<div class="eyebrow">Bulk sources</div>' +
+        '<p class="sourceManagerHint">CSV columns: marketId,label,url,type,cadenceHours,priority. Up to 100 rows per import.</p>' +
+        '<textarea class="input" id="bulkSourceText" placeholder="marketId,label,url,type,cadenceHours,priority\nmexico,Operator billing,https://example.com/billing,billing_route,24,high"></textarea>' +
+        '<div class="sourceManagerBulkActions">' +
+          '<button class="btn primary" id="importBulkSources" type="button">Import CSV</button>' +
+          '<button class="btn ghost" id="exportSourcesCsv" type="button">Export CSV</button>' +
+          '<button class="btn ghost" id="downloadBulkTemplate" type="button">CSV template</button>' +
+        '</div>' +
+        '<div class="sourceManagerBulkReport" id="bulkSourceReport"></div>' +
+      '</div>' +
       '<div class="sourceManagerList">' + cachedSources.map(sourceRow).join("") + '</div>';
 
     document.getElementById("closeSourceManager").onclick = () => ensureDialog().close();
     document.getElementById("saveManagedSource").onclick = save;
+    document.getElementById("importBulkSources").onclick = importBulk;
+    document.getElementById("exportSourcesCsv").onclick = exportCsv;
+    document.getElementById("downloadBulkTemplate").onclick = downloadTemplate;
     document.getElementById("cancelSourceEdit")?.addEventListener("click", () => {
       editingId = null;
       render(payload);
@@ -214,6 +305,73 @@
       invalid_source_priority: "Choose a valid priority.",
       migration_required: "The Source Manager database migration has not been applied yet."
     })[error.code] || error.message;
+  }
+
+  async function importBulk() {
+    const textarea = document.getElementById("bulkSourceText");
+    const report = document.getElementById("bulkSourceReport");
+    const button = document.getElementById("importBulkSources");
+    const sources = parseBulkText(textarea?.value || "");
+
+    if (!sources.length) {
+      if (report) report.textContent = "Nothing to import.";
+      return;
+    }
+    if (sources.length > 100) {
+      if (report) report.textContent = "Maximum 100 rows per import.";
+      return;
+    }
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Importing…";
+    }
+    if (report) report.textContent = "";
+
+    try {
+      const result = await request({ action: "bulk_create", sources });
+      const parts = [
+        (result.created || 0) + " created",
+        (result.skipped || 0) + " skipped",
+        (result.errors || 0) + " errors"
+      ];
+      if (report) report.textContent = parts.join(" · ");
+      await load();
+      window.dispatchEvent(new CustomEvent("radar:sources-updated"));
+    } catch (error) {
+      if (report) report.textContent = friendlyError(error);
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Import CSV";
+      }
+    }
+  }
+
+  function exportCsv() {
+    const headers = ["id","marketId","label","url","type","cadenceHours","priority","enabled","origin"];
+    const rows = [headers.join(",")].concat(
+      cachedSources.map(source => [
+        source.id,
+        source.marketId,
+        source.label,
+        source.url,
+        source.type,
+        source.cadenceHours,
+        source.priority,
+        source.enabled ? 1 : 0,
+        source.origin
+      ].map(csvEscape).join(","))
+    );
+    downloadText("dcb-radar-sources.csv", rows.join("\n"), "text/csv");
+  }
+
+  function downloadTemplate() {
+    const text = [
+      "marketId,label,url,type,cadenceHours,priority",
+      'mexico,"Example billing page","https://example.com/billing",billing_route,24,high'
+    ].join("\n");
+    downloadText("dcb-radar-source-template.csv", text, "text/csv");
   }
 
   async function save() {
