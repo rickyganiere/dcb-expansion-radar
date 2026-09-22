@@ -87,6 +87,8 @@ Open the production Radar and verify:
 
 Open **Manage sources**.
 
+Verify **Import CSV**, **Export CSV** and **CSV template** are visible.
+
 Create one temporary public HTTPS source with:
 - valid market
 - valid source type
@@ -99,7 +101,10 @@ Verify:
 - changing cadence updates immediately;
 - disabling it removes it from active Source Watch;
 - it remains listed in Source Manager as disabled;
-- core sources do not expose destructive edit controls.
+- core sources do not expose destructive edit controls;
+- a small CSV import reports created/skipped/errors correctly;
+- duplicate URLs are skipped;
+- export CSV contains core and custom source metadata.
 
 The temporary source can remain disabled after the test so history is preserved.
 
