@@ -40,6 +40,7 @@ Production remains on `main`. New development is prepared on `feature/radar-next
 - Discovery Inbox for reviewable source-change candidates
 - D1 Source Manager for adding/editing/disabling custom monitored sources
 - bulk CSV import/export for source operations
+- operator / partner tags on managed sources
 - source preflight testing and no-write bulk import preview
 - per-market source coverage-gap matrix for billing, regulatory and commercial ecosystem evidence
 - operational coverage health states and explainable Attention Queue
@@ -106,7 +107,7 @@ Static market intelligence remains versioned in GitHub until automatic discovery
 
 ## D1 schema
 
-Current prepared schema version: **4**.
+Current prepared schema version: **5**.
 
 ### Migration 0001
 - `workspace_state`
@@ -121,6 +122,9 @@ Current prepared schema version: **4**.
 
 ### Migration 0004
 - `monitored_sources`
+
+### Migration 0005
+- `entity_tags_json` on `monitored_sources`
 
 Workspace writes use optimistic versioning. A stale client receives `409 version_conflict` instead of silently overwriting newer cloud state.
 
