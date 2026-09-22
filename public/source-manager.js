@@ -115,7 +115,7 @@
     const style = document.createElement("style");
     style.id = "sourceManagerStyles";
     style.textContent =
-      ".sourceManagerDialog{width:min(1040px,95vw);max-height:90vh}.sourceManagerBody{padding:22px}.sourceCoverage{margin:12px 0;padding:13px}.sourceCoverageGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.sourceCoverageCard{padding:12px}.sourceCoverageHead{display:flex;justify-content:space-between;gap:8px;align-items:center}.sourceCoveragePillars{display:grid;gap:6px;margin-top:8px}.sourceCoveragePillar{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:10px}.coverageOk{color:#81efd3}.coverageGap{color:#ffb2b2}.coverageGapBtn{font-size:9px;padding:4px 7px}.sourceCoverageSummary{font-size:10px;color:var(--muted);margin-top:5px}@media(max-width:760px){.sourceCoverageGrid{grid-template-columns:1fr}}.sourceManagerBulk{margin:12px 0;padding:13px}.sourceManagerBulk textarea{width:100%;min-height:130px;resize:vertical}.sourceManagerBulkActions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.sourceManagerBulkReport{margin-top:8px;font-size:10px;color:var(--muted)}.sourceManagerTop{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.sourceManagerTop h2{margin:5px 0}.sourceManagerTop p{color:var(--muted);font-size:11px;line-height:1.55;margin:0}.sourceManagerCounts{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}.sourceManagerCount{font-size:10px;padding:6px 8px;border:1px solid #29455a;border-radius:999px;color:#b9c8d5}.sourceManagerForm{display:grid;grid-template-columns:1.1fr 1.5fr 2.2fr 1.2fr 1fr 1fr;gap:8px;align-items:end;padding:13px;margin:12px 0}.sourceManagerForm label{display:grid;gap:5px;color:var(--muted);font-size:9px}.sourceManagerForm .input{width:100%;min-width:0}.sourceManagerFormActions{display:flex;gap:7px;grid-column:1/-1}.sourceManagerList{display:grid;gap:8px;margin-top:12px}.sourceManagerRow{display:grid;grid-template-columns:minmax(160px,1.6fr) minmax(120px,.8fr) minmax(110px,.7fr) minmax(90px,.6fr) auto;gap:10px;align-items:center;padding:12px}.sourceManagerRow.disabled{opacity:.58}.sourceManagerName strong{display:block;font-size:12px}.sourceManagerName small{display:block;color:var(--muted);font-size:9px;margin-top:4px;word-break:break-all}.sourceManagerMeta{font-size:10px;color:#c7d5df}.sourceOrigin{display:inline-flex;padding:4px 7px;border:1px solid #29455a;border-radius:999px;font-size:9px;text-transform:uppercase}.sourceOrigin.core{color:#8db5ff}.sourceOrigin.manual,.sourceOrigin.imported{color:#81efd3}.sourceManagerError{color:#ffb2b2;font-size:10px;margin-top:8px}.sourceManagerHint{color:var(--muted);font-size:9px;margin-top:5px}@media(max-width:900px){.sourceManagerForm{grid-template-columns:repeat(2,1fr)}.sourceManagerRow{grid-template-columns:1fr 1fr}.sourceManagerRow .rowActions{grid-column:1/-1}}@media(max-width:620px){.sourceManagerForm{grid-template-columns:1fr}.sourceManagerRow{grid-template-columns:1fr}.sourceManagerTop{display:block}.sourceManagerTop .btn{margin-top:10px}}";
+      ".sourceManagerDialog{width:min(1040px,95vw);max-height:90vh}.sourceManagerBody{padding:22px}.sourceCoverage{margin:12px 0;padding:13px}.sourceCoverageGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.sourceCoverageCard{padding:12px}.sourceCoverageHead{display:flex;justify-content:space-between;gap:8px;align-items:center}.sourceCoveragePillars{display:grid;gap:6px;margin-top:8px}.sourceCoveragePillar{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:10px}.coverageStatus{display:inline-flex;align-items:center;gap:5px}.coverageOk{color:#81efd3}.coverageReview{color:#ffd27d}.coverageDegraded{color:#ff9e9e}.coverageUnchecked{color:#b9c8d5}.coverageGap{color:#ffb2b2}.coverageGapBtn{font-size:9px;padding:4px 7px}.sourceCoverageSummary{font-size:10px;color:var(--muted);margin-top:5px}@media(max-width:760px){.sourceCoverageGrid{grid-template-columns:1fr}}.sourceManagerBulk{margin:12px 0;padding:13px}.sourceManagerBulk textarea{width:100%;min-height:130px;resize:vertical}.sourceManagerBulkActions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.sourceManagerBulkReport{margin-top:8px;font-size:10px;color:var(--muted)}.sourceManagerTop{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.sourceManagerTop h2{margin:5px 0}.sourceManagerTop p{color:var(--muted);font-size:11px;line-height:1.55;margin:0}.sourceManagerCounts{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}.sourceManagerCount{font-size:10px;padding:6px 8px;border:1px solid #29455a;border-radius:999px;color:#b9c8d5}.sourceManagerForm{display:grid;grid-template-columns:1.1fr 1.5fr 2.2fr 1.2fr 1fr 1fr;gap:8px;align-items:end;padding:13px;margin:12px 0}.sourceManagerForm label{display:grid;gap:5px;color:var(--muted);font-size:9px}.sourceManagerForm .input{width:100%;min-width:0}.sourceManagerFormActions{display:flex;gap:7px;grid-column:1/-1}.sourceManagerList{display:grid;gap:8px;margin-top:12px}.sourceManagerRow{display:grid;grid-template-columns:minmax(160px,1.6fr) minmax(120px,.8fr) minmax(110px,.7fr) minmax(90px,.6fr) auto;gap:10px;align-items:center;padding:12px}.sourceManagerRow.disabled{opacity:.58}.sourceManagerName strong{display:block;font-size:12px}.sourceManagerName small{display:block;color:var(--muted);font-size:9px;margin-top:4px;word-break:break-all}.sourceManagerMeta{font-size:10px;color:#c7d5df}.sourceOrigin{display:inline-flex;padding:4px 7px;border:1px solid #29455a;border-radius:999px;font-size:9px;text-transform:uppercase}.sourceOrigin.core{color:#8db5ff}.sourceOrigin.manual,.sourceOrigin.imported{color:#81efd3}.sourceManagerError{color:#ffb2b2;font-size:10px;margin-top:8px}.sourceManagerHint{color:var(--muted);font-size:9px;margin-top:5px}@media(max-width:900px){.sourceManagerForm{grid-template-columns:repeat(2,1fr)}.sourceManagerRow{grid-template-columns:1fr 1fr}.sourceManagerRow .rowActions{grid-column:1/-1}}@media(max-width:620px){.sourceManagerForm{grid-template-columns:1fr}.sourceManagerRow{grid-template-columns:1fr}.sourceManagerTop{display:block}.sourceManagerTop .btn{margin-top:10px}}";
     document.head.appendChild(style);
   }
 
@@ -191,6 +191,22 @@
     '</div>';
   }
 
+  function coverageStatusHtml(pillar) {
+    const status = pillar?.status || "gap";
+    const map = {
+      healthy: ["coverageOk", "Healthy"],
+      review: ["coverageReview", "Review"],
+      degraded: ["coverageDegraded", "Degraded"],
+      unchecked: ["coverageUnchecked", "Unchecked"],
+      gap: ["coverageGap", "Gap"]
+    };
+    const [className, label] = map[status] || map.gap;
+    return '<span class="coverageStatus ' + className + '">' +
+      esc(label) +
+      (pillar?.sourceCount ? ' · ' + esc(pillar.sourceCount) : '') +
+    '</span>';
+  }
+
   function coverageHtml(payload) {
     if (!payload) {
       return '<div class="card sourceCoverage"><div class="eyebrow">Coverage</div><div class="empty">Coverage data unavailable.</div></div>';
@@ -200,8 +216,10 @@
     return '<div class="card sourceCoverage">' +
       '<div class="eyebrow">Coverage gaps</div>' +
       '<div class="sourceCoverageSummary">' +
-        esc(summary.completeMarkets || 0) + '/' + esc(summary.markets || 0) + ' markets complete · ' +
+        esc(summary.completeMarkets || 0) + '/' + esc(summary.markets || 0) + ' structurally complete · ' +
+        esc(summary.operationalCompleteMarkets || 0) + '/' + esc(summary.markets || 0) + ' operationally complete · ' +
         esc(summary.gaps || 0) + ' gaps · ' +
+        esc(summary.atRisk || 0) + ' at risk · ' +
         esc(summary.activeSources || 0) + ' active sources' +
       '</div>' +
       '<div class="sourceCoverageGrid">' +
@@ -216,7 +234,7 @@
                 '<div class="sourceCoveragePillar">' +
                   '<span>' + esc(pillar.label) + '</span>' +
                   (pillar.covered
-                    ? '<span class="coverageOk">' + esc(pillar.sourceCount) + ' source' + (pillar.sourceCount === 1 ? '' : 's') + '</span>'
+                    ? coverageStatusHtml(pillar)
                     : '<button type="button" class="btn tiny coverageGapBtn" ' +
                         'data-market="' + esc(market.marketId) + '" ' +
                         'data-type="' + esc(pillar.suggestedType) + '" ' +
