@@ -87,7 +87,7 @@ Open the production Radar and verify:
 
 Open **Manage sources**.
 
-Verify **Import CSV**, **Export CSV** and **CSV template** are visible.
+Verify **Test source**, **Preview import**, **Import CSV**, **Export CSV** and **CSV template** are visible.
 
 Create one temporary public HTTPS source with:
 - valid market
@@ -103,6 +103,8 @@ Verify:
 - it remains listed in Source Manager as disabled;
 - core sources do not expose destructive edit controls;
 - a small CSV import reports created/skipped/errors correctly;
+- Preview import reports valid/skipped/errors without writing records;
+- Test source succeeds on a normal HTML page and rejects a bot/security challenge;
 - duplicate URLs are skipped;
 - export CSV contains core and custom source metadata.
 
