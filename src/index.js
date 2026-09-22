@@ -1,5 +1,7 @@
 import { SOURCE_REGISTRY } from "./source-registry.js";
 import { getVerifiedAccessIdentity, enforcePinnedAudience } from "./access-auth.js";
+import { scanAppListing, persistAppScan, listCommercialEntities, reviewCommercialEntity, PUBLISHER_DISCOVERY_ERRORS } from "./publisher-discovery.js";
+import { listDiscoveryState, createDiscoverySeed, toggleDiscoverySeed, runDiscoverySeedById, createPresetPack, runDueDiscoverySeeds, processDiscoveryQueue, retryDiscoveryListing, APP_DISCOVERY_ERRORS } from "./app-discovery.js";
 
 function json(data, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -26,44 +28,163 @@ async function sha256(text) {
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+function looksLikeChallengePage(title, normalizedText) {
+  const haystack = (String(title || "") + " " + String(normalizedText || "").slice(0, 3000)).toLowerCase();
+  const markers = [
+    "challenge validation",
+    "just a moment",
+    "verify you are human",
+    "checking your browser",
+    "attention required",
+    "security check",
+    "robot check",
+    "access denied"
+  ];
+  return markers.some(marker => haystack.includes(marker));
+}
+
+const hostReadyAt = new Map();
+
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function waitForHostSlot(url) {
+  const host = new URL(url).hostname;
+  const now = Date.now();
+  const readyAt = hostReadyAt.get(host) || 0;
+  const startAt = Math.max(now, readyAt);
+  hostReadyAt.set(host, startAt + 900);
+
+  const delay = startAt - now;
+  if (delay > 0) await wait(delay);
+}
+
 function retryDelayMs(response, attempt) {
   const raw = response?.headers?.get("retry-after");
-  const seconds = raw && /^\d+$/.test(raw) ? Number(raw) : null;
-  if (seconds != null) return Math.min(seconds * 1000, 5000);
+
+  if (raw && /^\d+$/.test(raw)) {
+    return Math.min(Number(raw) * 1000, 5000);
+  }
+
+  if (raw) {
+    const retryAt = Date.parse(raw);
+    if (Number.isFinite(retryAt)) {
+      return Math.max(0, Math.min(retryAt - Date.now(), 5000));
+    }
+  }
+
   return Math.min(750 * (attempt + 1), 2500);
 }
 
 async function fetchMonitoredSource(url) {
   let lastResponse = null;
+  let lastError = null;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const response = await fetch(url, {
-      redirect: "follow",
-      headers: {
-        "user-agent": "DCB-Expansion-Radar/0.4 source-monitor",
-        "accept": "text/html,application/xhtml+xml"
+    await waitForHostSlot(url);
+
+    try {
+      const response = await fetch(url, {
+        redirect: "follow",
+        headers: {
+          "user-agent": "DCB-Expansion-Radar/0.4 source-monitor",
+          "accept": "text/html,application/xhtml+xml"
+        }
+      });
+
+      lastResponse = response;
+      const retryable = response.status === 429 || response.status >= 500;
+      if (!retryable || attempt === 2) return response;
+
+      const delay = retryDelayMs(response, attempt);
+      try {
+        await response.body?.cancel();
+      } catch {
+        // Best-effort connection cleanup before retry.
       }
-    });
-
-    lastResponse = response;
-    const retryable = response.status === 429 || response.status >= 500;
-    if (!retryable || attempt === 2) return response;
-
-    await wait(retryDelayMs(response, attempt));
+      await wait(delay);
+    } catch (error) {
+      lastError = error;
+      if (attempt === 2) throw error;
+      await wait(Math.min(750 * (attempt + 1), 2500));
+    }
   }
 
-  return lastResponse;
+  if (lastResponse) return lastResponse;
+  throw lastError || new Error("source_fetch_failed");
+}
+
+async function readResponseTextLimited(response, maxBytes = 2_000_000) {
+  const declaredLength = Number(response.headers.get("content-length") || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    try { await response.body?.cancel(); } catch {}
+    throw new Error("Source content exceeds 2 MB limit");
+  }
+
+  if (!response.body?.getReader) {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > maxBytes) {
+      throw new Error("Source content exceeds 2 MB limit");
+    }
+    return text;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error("Source content exceeds 2 MB limit");
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return text;
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+}
+
+function attachInspectionMetadata(error, response, started) {
+  error.httpStatus = response?.status ?? null;
+  error.durationMs = Date.now() - started;
+  return error;
 }
 
 async function inspectSource(id, entry) {
   const started = Date.now();
   const response = await fetchMonitoredSource(entry.url);
 
-  const raw = await response.text();
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  const allowedContentType =
+    !contentType ||
+    contentType.includes("text/html") ||
+    contentType.includes("application/xhtml+xml") ||
+    contentType.includes("text/plain");
+
+  if (response.ok && !allowedContentType) {
+    try { await response.body?.cancel(); } catch {}
+    throw attachInspectionMetadata(
+      new Error("Unsupported source content type"),
+      response,
+      started
+    );
+  }
+
+  let raw;
+  try {
+    raw = await readResponseTextLimited(response);
+  } catch (error) {
+    throw attachInspectionMetadata(error, response, started);
+  }
   const normalized = normalizeSourceText(raw);
   const titleMatch = raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? normalizeSourceText(titleMatch[1]).slice(0, 180) : null;
@@ -75,6 +196,7 @@ async function inspectSource(id, entry) {
     type: entry.type,
     url: entry.url,
     ok: response.ok,
+    blocked: looksLikeChallengePage(title, normalized),
     status: response.status,
     finalUrl: response.url,
     hash: await sha256(normalized),
@@ -83,6 +205,341 @@ async function inspectSource(id, entry) {
     checkedAt: new Date().toISOString(),
     durationMs: Date.now() - started
   };
+}
+
+async function getSchemaVersion(db) {
+  if (!db) return 0;
+  try {
+    const row = await db
+      .prepare("SELECT value FROM app_meta WHERE key = 'schema_version' LIMIT 1")
+      .first();
+    const version = Number(row?.value || 0);
+    return Number.isFinite(version) ? version : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function migrationRequired(version, required = 3) {
+  return json({
+    ok: false,
+    error: "migration_required",
+    currentSchemaVersion: version,
+    requiredSchemaVersion: required,
+    message: "D1 schema migration is required before this feature can be used."
+  }, { status: 503 });
+}
+
+const ALLOWED_SOURCE_MARKETS = new Set(
+  Object.values(SOURCE_REGISTRY).map(entry => entry.marketId)
+);
+const ALLOWED_SOURCE_TYPES = new Set([
+  "billing_route",
+  "market_update",
+  "corporate_change",
+  "partner_update",
+  "operator_update"
+]);
+const ALLOWED_SOURCE_CADENCES = new Set([12, 24, 72, 168]);
+const ALLOWED_SOURCE_PRIORITIES = new Set(["high", "medium", "low"]);
+
+function coreSourceCatalog() {
+  return Object.fromEntries(
+    Object.entries(SOURCE_REGISTRY).map(([id, entry]) => [id, {
+      ...entry,
+      id,
+      enabled: true,
+      origin: "core",
+      editable: false,
+      entityTags: Array.isArray(entry.entityTags) ? entry.entityTags : [],
+      createdBy: null,
+      createdAt: null,
+      updatedAt: null
+    }])
+  );
+}
+
+function managedSourceRowToEntry(row) {
+  return {
+    id: row.source_id,
+    marketId: row.market_id,
+    label: row.label,
+    url: row.url,
+    type: row.source_type,
+    cadenceHours: Number(row.cadence_hours || 24),
+    priority: row.priority || "medium",
+    enabled: Number(row.enabled) === 1,
+    origin: row.origin || "manual",
+    editable: true,
+    entityTags: (() => {
+      try {
+        const parsed = JSON.parse(row.entity_tags_json || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    })(),
+    createdBy: row.created_by || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null
+  };
+}
+
+async function loadSourceCatalog(db, { includeDisabled = false } = {}) {
+  const catalog = coreSourceCatalog();
+  const schemaVersion = db ? await getSchemaVersion(db) : 0;
+  if (!db || schemaVersion < 4) return catalog;
+
+  const tagColumn = schemaVersion >= 5
+    ? "entity_tags_json"
+    : "'[]' AS entity_tags_json";
+
+  const sql = `SELECT
+      source_id, market_id, label, url, source_type,
+      cadence_hours, priority, enabled, origin,
+      ${tagColumn},
+      created_by, created_at, updated_at
+    FROM monitored_sources
+    ${includeDisabled ? "" : "WHERE enabled = 1"}
+    ORDER BY created_at ASC, source_id ASC`;
+
+  const result = await db.prepare(sql).all();
+  for (const row of result?.results || []) {
+    if (catalog[row.source_id]) continue;
+    catalog[row.source_id] = managedSourceRowToEntry(row);
+  }
+
+  return catalog;
+}
+
+async function findSourceEntry(id, db, options = {}) {
+  const catalog = await loadSourceCatalog(db, options);
+  return catalog[id] || null;
+}
+
+function normalizeManagedSourceUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw.length > 2048) throw new Error("invalid_source_url");
+
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("invalid_source_url");
+  }
+
+  if (parsed.protocol !== "https:") throw new Error("source_url_must_use_https");
+  if (parsed.username || parsed.password) throw new Error("source_url_credentials_not_allowed");
+  if (parsed.port && parsed.port !== "443") throw new Error("source_url_custom_port_not_allowed");
+
+  const host = parsed.hostname.toLowerCase();
+  const blockedSuffixes = [".local", ".internal", ".lan", ".localhost"];
+  const looksLikeIpv4 = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host);
+  const looksLikeIpv6 = host.includes(":");
+
+  if (
+    !host.includes(".") ||
+    host === "localhost" ||
+    looksLikeIpv4 ||
+    looksLikeIpv6 ||
+    blockedSuffixes.some(suffix => host.endsWith(suffix))
+  ) {
+    throw new Error("source_url_host_not_allowed");
+  }
+
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function normalizeEntityTags(value, fallback = []) {
+  const raw = value == null ? fallback : value;
+  const items = Array.isArray(raw)
+    ? raw
+    : String(raw || "").split(/[;,]/);
+
+  return [...new Set(
+    items
+      .map(item => String(item || "").trim())
+      .filter(Boolean)
+      .map(item => item.slice(0, 80))
+  )].slice(0, 12);
+}
+
+function normalizeManagedSourceInput(input, existing = {}) {
+  const marketId = String(input?.marketId ?? existing.marketId ?? "").trim();
+  const label = String(input?.label ?? existing.label ?? "").trim();
+  const type = String(input?.type ?? existing.type ?? "").trim();
+  const cadenceHours = Number(input?.cadenceHours ?? existing.cadenceHours ?? 24);
+  const priority = String(input?.priority ?? existing.priority ?? "medium").trim().toLowerCase();
+  const entityTags = normalizeEntityTags(input?.entityTags, existing.entityTags || []);
+  const url = normalizeManagedSourceUrl(input?.url ?? existing.url ?? "");
+
+  if (!ALLOWED_SOURCE_MARKETS.has(marketId)) throw new Error("invalid_source_market");
+  if (label.length < 3 || label.length > 160) throw new Error("invalid_source_label");
+  if (!ALLOWED_SOURCE_TYPES.has(type)) throw new Error("invalid_source_type");
+  if (!ALLOWED_SOURCE_CADENCES.has(cadenceHours)) throw new Error("invalid_source_cadence");
+  if (!ALLOWED_SOURCE_PRIORITIES.has(priority)) throw new Error("invalid_source_priority");
+
+  return { marketId, label, url, type, cadenceHours, priority, entityTags };
+}
+
+const SOURCE_COVERAGE_PILLARS = [
+  {
+    id: "billing",
+    label: "Billing evidence",
+    types: ["billing_route"],
+    suggestedType: "billing_route",
+    suggestedCadenceHours: 24,
+    suggestedPriority: "high"
+  },
+  {
+    id: "market",
+    label: "Market / regulatory",
+    types: ["market_update"],
+    suggestedType: "market_update",
+    suggestedCadenceHours: 168,
+    suggestedPriority: "medium"
+  },
+  {
+    id: "ecosystem",
+    label: "Commercial ecosystem",
+    types: ["operator_update", "partner_update", "corporate_change"],
+    suggestedType: "operator_update",
+    suggestedCadenceHours: 72,
+    suggestedPriority: "medium"
+  }
+];
+
+function sourceOperationalStatus(state) {
+  if (!state?.checked_at) return "unchecked";
+  if (state?.last_error) return "degraded";
+  if (Number(state?.changed || 0) === 1) return "review";
+  return "healthy";
+}
+
+function coverageAttentionItem(marketId, pillar) {
+  const pillarWeight = pillar.id === "billing" ? 30 : pillar.id === "market" ? 20 : 10;
+  const stateWeight = pillar.status === "gap"
+    ? 4
+    : pillar.status === "degraded"
+      ? 3
+      : pillar.status === "unchecked"
+        ? 2
+        : 0;
+
+  if (!stateWeight) return null;
+
+  const urgency = pillar.id === "billing" && ["gap", "degraded"].includes(pillar.status)
+    ? "critical"
+    : pillar.id === "market" && ["gap", "degraded"].includes(pillar.status)
+      ? "high"
+      : pillar.status === "gap"
+        ? "high"
+        : "medium";
+
+  const reason = pillar.status === "gap"
+    ? "No active source covers " + pillar.label.toLowerCase() + "."
+    : pillar.status === "degraded"
+      ? "Existing source coverage is failing checks."
+      : "Source exists but has not completed a successful check yet.";
+
+  return {
+    marketId,
+    pillarId: pillar.id,
+    label: pillar.label,
+    status: pillar.status,
+    urgency,
+    order: pillarWeight + stateWeight,
+    reason,
+    suggestedType: pillar.suggestedType,
+    suggestedCadenceHours: pillar.suggestedCadenceHours,
+    suggestedPriority: pillar.suggestedPriority,
+    sourceIds: pillar.sourceIds
+  };
+}
+
+function buildSourceCoverage(catalog, sourceStates = {}) {
+  const entries = Object.values(catalog || {}).filter(source => source.enabled !== false);
+  const markets = [...ALLOWED_SOURCE_MARKETS].sort();
+
+  return markets.map(marketId => {
+    const marketSources = entries.filter(source => source.marketId === marketId);
+    const pillars = SOURCE_COVERAGE_PILLARS.map(pillar => {
+      const matching = marketSources.filter(source => pillar.types.includes(source.type));
+      const sourceDetails = matching.map(source => ({
+        id: source.id,
+        status: sourceOperationalStatus(sourceStates[source.id])
+      }));
+      const statuses = sourceDetails.map(source => source.status);
+
+      let status = "gap";
+      if (matching.length) {
+        if (statuses.includes("healthy")) status = "healthy";
+        else if (statuses.includes("review")) status = "review";
+        else if (statuses.includes("degraded")) status = "degraded";
+        else status = "unchecked";
+      }
+
+      return {
+        id: pillar.id,
+        label: pillar.label,
+        covered: matching.length > 0,
+        operational: status === "healthy" || status === "review",
+        status,
+        sourceCount: matching.length,
+        sourceIds: matching.map(source => source.id),
+        sources: sourceDetails,
+        suggestedType: pillar.suggestedType,
+        suggestedCadenceHours: pillar.suggestedCadenceHours,
+        suggestedPriority: pillar.suggestedPriority
+      };
+    });
+
+    const covered = pillars.filter(pillar => pillar.covered).length;
+    const operational = pillars.filter(pillar => pillar.operational).length;
+    const healthy = pillars.filter(pillar => pillar.status === "healthy").length;
+    const atRisk = pillars.filter(pillar =>
+      pillar.status === "degraded" || pillar.status === "unchecked"
+    );
+    const gaps = pillars
+      .filter(pillar => !pillar.covered)
+      .map(pillar => ({
+        pillarId: pillar.id,
+        label: pillar.label,
+        suggestedType: pillar.suggestedType,
+        suggestedCadenceHours: pillar.suggestedCadenceHours,
+        suggestedPriority: pillar.suggestedPriority
+      }));
+
+    return {
+      marketId,
+      activeSources: marketSources.length,
+      coveredPillars: covered,
+      operationalPillars: operational,
+      healthyPillars: healthy,
+      atRiskPillars: atRisk.length,
+      totalPillars: pillars.length,
+      complete: covered === pillars.length,
+      operationalComplete: operational === pillars.length,
+      pillars,
+      gaps,
+      atRisk: atRisk.map(pillar => ({
+        pillarId: pillar.id,
+        label: pillar.label,
+        status: pillar.status,
+        sourceIds: pillar.sourceIds
+      }))
+    };
+  });
+}
+
+function sourceErrorResponse(error, fallbackStatus = 400) {
+  const code = String(error?.message || error || "invalid_source");
+  const conflict = /unique constraint/i.test(code) || code === "duplicate_source_url";
+  return json({
+    ok: false,
+    error: conflict ? "duplicate_source_url" : code
+  }, { status: conflict ? 409 : fallbackStatus });
 }
 
 function cleanStringArray(value, maxItems = 100) {
@@ -364,6 +821,24 @@ async function persistSourceSuccess(db, result, actor = "system") {
     await historyStatement.run();
   }
 
+  if (changed && await getSchemaVersion(db) >= 3) {
+    await db.prepare(`INSERT INTO discovery_candidates (
+        source_id, market_id, candidate_type, content_hash,
+        title, summary, source_url, status, detected_at, updated_at
+      ) VALUES (?1, ?2, 'source_change', ?3, ?4, ?5, ?6, 'pending', ?7, ?7)
+      ON CONFLICT(source_id, content_hash) DO NOTHING`)
+      .bind(
+        result.id,
+        result.marketId,
+        result.hash,
+        result.title || result.label,
+        result.label + " changed compared with the reviewed baseline. Review the source before updating market intelligence.",
+        result.url,
+        now
+      )
+      .run();
+  }
+
   await db.prepare(`DELETE FROM source_watch_history
     WHERE source_id = ?1
       AND id NOT IN (
@@ -439,15 +914,23 @@ async function persistSourceFailure(db, id, entry, error, actor = "system") {
   return { error: message, httpStatus };
 }
 
-async function checkSourceById(id, env, actor = "manual") {
-  const entry = SOURCE_REGISTRY[id];
-  if (!entry) throw new Error("unknown_source");
+async function checkSourceById(id, env, actor = "manual", entryOverride = null) {
+  const entry = entryOverride || await findSourceEntry(id, env.RADAR_DB);
+  if (!entry || entry.enabled === false) throw new Error("unknown_source");
 
   try {
     const result = await inspectSource(id, entry);
 
     if (!result.ok) {
       const error = new Error("HTTP " + result.status + " from monitored source");
+      error.httpStatus = result.status;
+      error.durationMs = result.durationMs;
+      error.title = result.title;
+      throw error;
+    }
+
+    if (result.blocked) {
+      const error = new Error("Bot challenge page returned by monitored source");
       error.httpStatus = result.status;
       error.durationMs = result.durationMs;
       error.title = result.title;
@@ -467,12 +950,58 @@ async function checkSourceById(id, env, actor = "manual") {
   }
 }
 
-async function runAllSourceChecks(env, actor = "system") {
+function effectiveCadenceHours(entry, state) {
+  let hours = Number(entry?.cadenceHours || 24);
+  if (!Number.isFinite(hours) || hours <= 0) hours = 24;
+
+  const status = Number(state?.last_http_status || 0);
+  const error = String(state?.last_error || "").toLowerCase();
+
+  if (status === 429) hours = Math.max(hours, 24);
+  if (error.includes("bot challenge")) hours = Math.max(hours, 72);
+
+  return hours;
+}
+
+function sourceDueTimestamp(entry, state) {
+  if (!state?.checked_at) return 0;
+  const checkedAt = Date.parse(state.checked_at);
+  if (!Number.isFinite(checkedAt)) return 0;
+  return checkedAt + effectiveCadenceHours(entry, state) * 60 * 60 * 1000;
+}
+
+function sourceIsDue(entry, state, nowMs = Date.now()) {
+  return sourceDueTimestamp(entry, state) <= nowMs;
+}
+
+async function loadSourceScheduleStates(db) {
+  const result = await db.prepare(`SELECT
+      source_id, baseline_hash, last_hash, changed,
+      last_http_status, last_duration_ms, last_title, last_error,
+      checked_at
+    FROM source_watch_state`).all();
+
+  return Object.fromEntries(
+    (result?.results || []).map(row => [row.source_id, row])
+  );
+}
+
+async function runAllSourceChecks(env, actor = "system", options = {}) {
   if (!env.RADAR_DB) {
     return { ok: false, error: "d1_not_configured", checked: 0, changed: 0, failed: 0 };
   }
 
-  const ids = Object.keys(SOURCE_REGISTRY);
+  const catalog = await loadSourceCatalog(env.RADAR_DB);
+  const allIds = Object.keys(catalog);
+  const respectCadence = options.respectCadence ?? actor === "cron";
+  let ids = allIds;
+
+  if (respectCadence) {
+    const states = await loadSourceScheduleStates(env.RADAR_DB);
+    const nowMs = Date.now();
+    ids = allIds.filter(id => sourceIsDue(catalog[id], states[id], nowMs));
+  }
+
   const concurrency = 3;
   let cursor = 0;
   const results = [];
@@ -484,7 +1013,7 @@ async function runAllSourceChecks(env, actor = "system") {
       const id = ids[index];
 
       try {
-        const value = await checkSourceById(id, env, actor);
+        const value = await checkSourceById(id, env, actor, catalog[id]);
         results[index] = { status: "fulfilled", value };
       } catch (reason) {
         results[index] = { status: "rejected", reason };
@@ -511,11 +1040,14 @@ async function runAllSourceChecks(env, actor = "system") {
 
   const summary = {
     ok: failed === 0,
+    registered: allIds.length,
     attempted: ids.length,
+    skippedByCadence: Math.max(0, allIds.length - ids.length),
     checked,
     changed,
     failed,
     concurrency,
+    cadenceAware: respectCadence,
     completedAt: new Date().toISOString(),
     actor
   };
@@ -552,18 +1084,17 @@ async function automationHealth(request, env, ctx) {
   const gate = await requireWorkspaceContext(request, env, ctx);
   if (gate.response) return gate.response;
 
-  const [counts, runRow, summaryRow] = await Promise.all([
-    gate.db.prepare(`SELECT
-      COUNT(*) AS total,
-      SUM(CASE WHEN last_hash IS NOT NULL AND last_error IS NULL AND changed = 0 THEN 1 ELSE 0 END) AS healthy,
-      SUM(CASE WHEN changed = 1 THEN 1 ELSE 0 END) AS changed,
-      SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS failed,
-      SUM(CASE WHEN checked_at IS NULL THEN 1 ELSE 0 END) AS unchecked,
-      SUM(CASE WHEN last_http_status = 429 THEN 1 ELSE 0 END) AS rate_limited,
-      SUM(CASE WHEN checked_at IS NOT NULL AND checked_at < datetime('now','-36 hours') THEN 1 ELSE 0 END) AS stale
-    FROM source_watch_state`).first(),
+  const schemaVersion = await getSchemaVersion(gate.db);
+  const discoveryCount = schemaVersion >= 3
+    ? gate.db.prepare("SELECT COUNT(*) AS pending FROM discovery_candidates WHERE status = 'pending'").first()
+    : Promise.resolve({ pending: 0 });
+
+  const [sourceCatalog, runRow, summaryRow, discoveryRow, scheduleStates] = await Promise.all([
+    loadSourceCatalog(gate.db),
     gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_run' LIMIT 1").first(),
-    gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_summary' LIMIT 1").first()
+    gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_summary' LIMIT 1").first(),
+    discoveryCount,
+    loadSourceScheduleStates(gate.db)
   ]);
 
   let lastSummary = null;
@@ -573,21 +1104,653 @@ async function automationHealth(request, env, ctx) {
     lastSummary = null;
   }
 
+  const registryEntries = Object.entries(sourceCatalog);
+  const registryTotal = registryEntries.length;
+  const nowMs = Date.now();
+
+  const statesForActiveSources = registryEntries.map(([id]) => scheduleStates[id]).filter(Boolean);
+  const tracked = statesForActiveSources.length;
+  const healthy = registryEntries.filter(([id]) => {
+    const state = scheduleStates[id];
+    return Boolean(state?.last_hash) && !state?.last_error && Number(state?.changed || 0) === 0;
+  }).length;
+  const changed = registryEntries.filter(([id]) => Number(scheduleStates[id]?.changed || 0) === 1).length;
+  const failed = registryEntries.filter(([id]) => Boolean(scheduleStates[id]?.last_error)).length;
+  const rateLimited = registryEntries.filter(([id]) => Number(scheduleStates[id]?.last_http_status || 0) === 429).length;
+  const blocked = registryEntries.filter(([id]) =>
+    /bot challenge/i.test(String(scheduleStates[id]?.last_error || ""))
+  ).length;
+  const stale = registryEntries.filter(([id]) => {
+    const raw = scheduleStates[id]?.checked_at;
+    const checkedAt = raw ? Date.parse(raw) : NaN;
+    return Number.isFinite(checkedAt) && checkedAt < nowMs - 36 * 60 * 60 * 1000;
+  }).length;
+  const unchecked = registryEntries.filter(([id]) => !scheduleStates[id]?.checked_at).length;
+  const dueNow = registryEntries.filter(([id, entry]) =>
+    sourceIsDue(entry, scheduleStates[id], nowMs)
+  ).length;
+  const dueTimestamps = registryEntries.map(([id, entry]) =>
+    sourceDueTimestamp(entry, scheduleStates[id])
+  );
+  const nextDueMs = dueTimestamps.length ? Math.min(...dueTimestamps) : 0;
+
   return json({
     ok: true,
+    schemaVersion,
     schedule: "0 6,18 * * *",
     nextRunAt: nextSourceWatchRun(),
     lastRunAt: runRow?.value || null,
     lastSummary,
     sources: {
-      total: Number(counts?.total || 0),
-      healthy: Number(counts?.healthy || 0),
-      changed: Number(counts?.changed || 0),
-      failed: Number(counts?.failed || 0),
-      unchecked: Number(counts?.unchecked || 0),
-      rateLimited: Number(counts?.rate_limited || 0),
-      stale: Number(counts?.stale || 0)
+      total: registryTotal,
+      tracked,
+      healthy,
+      changed,
+      failed,
+      unchecked,
+      rateLimited,
+      blocked,
+      stale,
+      dueNow,
+      nextDueAt: nextDueMs ? new Date(Math.max(nextDueMs, nowMs)).toISOString() : null
+    },
+    discovery: {
+      pending: Number(discoveryRow?.pending || 0)
     }
+  });
+}
+
+async function sourceManager(request, env, ctx) {
+  const gate = await requireWorkspaceContext(request, env, ctx);
+  if (gate.response) return gate.response;
+
+  const schemaVersion = await getSchemaVersion(gate.db);
+  if (schemaVersion < 5) return migrationRequired(schemaVersion, 5);
+
+  if (request.method === "GET") {
+    const catalog = await loadSourceCatalog(gate.db, { includeDisabled: true });
+    const sources = Object.values(catalog).sort((a, b) => {
+      if (a.origin !== b.origin) return a.origin === "core" ? -1 : 1;
+      return String(a.label).localeCompare(String(b.label));
+    });
+
+    return json({
+      ok: true,
+      counts: {
+        total: sources.length,
+        core: sources.filter(source => source.origin === "core").length,
+        custom: sources.filter(source => source.origin !== "core").length,
+        enabled: sources.filter(source => source.enabled).length,
+        disabled: sources.filter(source => !source.enabled).length
+      },
+      sources
+    });
+  }
+
+  if (request.method !== "POST") {
+    return json({ ok: false, error: "method_not_allowed" }, { status: 405 });
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ ok: false, error: "invalid_json" }, { status: 400 });
+  }
+
+  const action = String(body?.action || "");
+
+  if (action === "probe") {
+    let source;
+    try {
+      source = normalizeManagedSourceInput(body);
+    } catch (error) {
+      return sourceErrorResponse(error);
+    }
+
+    try {
+      const result = await inspectSource("probe", source);
+
+      if (!result.ok) {
+        return json({
+          ok: false,
+          error: "source_probe_failed",
+          status: result.status,
+          title: result.title,
+          durationMs: result.durationMs,
+          finalUrl: result.finalUrl
+        }, { status: 422 });
+      }
+
+      if (result.blocked) {
+        return json({
+          ok: false,
+          error: "source_probe_blocked",
+          status: result.status,
+          title: result.title,
+          durationMs: result.durationMs,
+          finalUrl: result.finalUrl
+        }, { status: 422 });
+      }
+
+      return json({
+        ok: true,
+        action,
+        source,
+        probe: {
+          status: result.status,
+          title: result.title,
+          textLength: result.textLength,
+          durationMs: result.durationMs,
+          finalUrl: result.finalUrl
+        }
+      });
+    } catch (error) {
+      return json({
+        ok: false,
+        error: "source_probe_failed",
+        detail: String(error?.message || error),
+        status: error?.httpStatus ?? null,
+        durationMs: error?.durationMs ?? null
+      }, { status: 422 });
+    }
+  }
+
+  if (action === "bulk_preview") {
+    const items = Array.isArray(body?.sources) ? body.sources.slice(0, 100) : [];
+    if (!items.length) {
+      return json({ ok: false, error: "bulk_sources_required" }, { status: 400 });
+    }
+    if ((body?.sources || []).length > 100) {
+      return json({ ok: false, error: "bulk_source_limit", limit: 100 }, { status: 413 });
+    }
+
+    const existingCatalog = await loadSourceCatalog(gate.db, { includeDisabled: true });
+    const knownUrls = new Set();
+    for (const entry of Object.values(existingCatalog)) {
+      try {
+        knownUrls.add(normalizeManagedSourceUrl(entry.url));
+      } catch {
+        knownUrls.add(String(entry.url || ""));
+      }
+    }
+
+    const valid = [];
+    const skipped = [];
+    const errors = [];
+    const batchUrls = new Set();
+
+    for (let index = 0; index < items.length; index += 1) {
+      const raw = items[index];
+      let source;
+
+      try {
+        source = normalizeManagedSourceInput(raw);
+      } catch (error) {
+        errors.push({
+          index,
+          label: String(raw?.label || ""),
+          url: String(raw?.url || ""),
+          error: String(error?.message || error)
+        });
+        continue;
+      }
+
+      if (knownUrls.has(source.url) || batchUrls.has(source.url)) {
+        skipped.push({
+          index,
+          label: source.label,
+          url: source.url,
+          reason: "duplicate_source_url"
+        });
+        continue;
+      }
+
+      batchUrls.add(source.url);
+      valid.push({ index, ...source });
+    }
+
+    return json({
+      ok: errors.length === 0,
+      action,
+      requested: items.length,
+      valid: valid.length,
+      skipped: skipped.length,
+      errors: errors.length,
+      validSources: valid,
+      skippedSources: skipped,
+      errorSources: errors
+    }, { status: errors.length ? 207 : 200 });
+  }
+
+  if (action === "create") {
+    let source;
+    try {
+      source = normalizeManagedSourceInput(body);
+    } catch (error) {
+      return sourceErrorResponse(error);
+    }
+
+    const coreDuplicate = Object.values(SOURCE_REGISTRY).some(entry => {
+      try {
+        return normalizeManagedSourceUrl(entry.url) === source.url;
+      } catch {
+        return entry.url === source.url;
+      }
+    });
+    if (coreDuplicate) return sourceErrorResponse(new Error("duplicate_source_url"), 409);
+
+    const id = "custom-" + crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    try {
+      await gate.db.prepare(`INSERT INTO monitored_sources (
+          source_id, market_id, label, url, source_type,
+          cadence_hours, priority, enabled, origin, entity_tags_json,
+          created_by, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'manual', ?8, ?9, ?10, ?10)`)
+        .bind(
+          id,
+          source.marketId,
+          source.label,
+          source.url,
+          source.type,
+          source.cadenceHours,
+          source.priority,
+          JSON.stringify(source.entityTags),
+          gate.identity.email,
+          now
+        )
+        .run();
+    } catch (error) {
+      return sourceErrorResponse(error, 409);
+    }
+
+    return json({
+      ok: true,
+      action,
+      source: {
+        id,
+        ...source,
+        enabled: true,
+        origin: "manual",
+        editable: true,
+        createdBy: gate.identity.email,
+        createdAt: now,
+        updatedAt: now
+      }
+    }, { status: 201 });
+  }
+
+  if (action === "bulk_create") {
+    const items = Array.isArray(body?.sources) ? body.sources.slice(0, 100) : [];
+    if (!items.length) {
+      return json({ ok: false, error: "bulk_sources_required" }, { status: 400 });
+    }
+    if ((body?.sources || []).length > 100) {
+      return json({ ok: false, error: "bulk_source_limit", limit: 100 }, { status: 413 });
+    }
+
+    const existingCatalog = await loadSourceCatalog(gate.db, { includeDisabled: true });
+    const knownUrls = new Set();
+    for (const entry of Object.values(existingCatalog)) {
+      try {
+        knownUrls.add(normalizeManagedSourceUrl(entry.url));
+      } catch {
+        knownUrls.add(String(entry.url || ""));
+      }
+    }
+
+    const created = [];
+    const skipped = [];
+    const errors = [];
+    const batchUrls = new Set();
+
+    for (let index = 0; index < items.length; index += 1) {
+      const raw = items[index];
+      let source;
+
+      try {
+        source = normalizeManagedSourceInput(raw);
+      } catch (error) {
+        errors.push({
+          index,
+          label: String(raw?.label || ""),
+          url: String(raw?.url || ""),
+          error: String(error?.message || error)
+        });
+        continue;
+      }
+
+      if (knownUrls.has(source.url) || batchUrls.has(source.url)) {
+        skipped.push({
+          index,
+          label: source.label,
+          url: source.url,
+          reason: "duplicate_source_url"
+        });
+        continue;
+      }
+
+      const id = "custom-" + crypto.randomUUID();
+      const now = new Date().toISOString();
+
+      try {
+        await gate.db.prepare(`INSERT INTO monitored_sources (
+            source_id, market_id, label, url, source_type,
+            cadence_hours, priority, enabled, origin, entity_tags_json,
+            created_by, created_at, updated_at
+          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'imported', ?8, ?9, ?10, ?10)`)
+          .bind(
+            id,
+            source.marketId,
+            source.label,
+            source.url,
+            source.type,
+            source.cadenceHours,
+            source.priority,
+            JSON.stringify(source.entityTags),
+            gate.identity.email,
+            now
+          )
+          .run();
+
+        batchUrls.add(source.url);
+        knownUrls.add(source.url);
+        created.push({
+          index,
+          id,
+          ...source,
+          enabled: true,
+          origin: "imported"
+        });
+      } catch (error) {
+        const message = String(error?.message || error);
+        if (/unique constraint/i.test(message)) {
+          skipped.push({
+            index,
+            label: source.label,
+            url: source.url,
+            reason: "duplicate_source_url"
+          });
+        } else {
+          errors.push({
+            index,
+            label: source.label,
+            url: source.url,
+            error: message.slice(0, 300)
+          });
+        }
+      }
+    }
+
+    return json({
+      ok: errors.length === 0,
+      action,
+      requested: items.length,
+      created: created.length,
+      skipped: skipped.length,
+      errors: errors.length,
+      createdSources: created,
+      skippedSources: skipped,
+      errorSources: errors
+    }, { status: errors.length ? 207 : 200 });
+  }
+
+  const id = String(body?.id || "");
+  if (!id || SOURCE_REGISTRY[id]) {
+    return json({ ok: false, error: "core_source_not_editable" }, { status: 400 });
+  }
+
+  const row = await gate.db.prepare(`SELECT
+      source_id, market_id, label, url, source_type,
+      cadence_hours, priority, enabled, origin, entity_tags_json,
+      created_by, created_at, updated_at
+    FROM monitored_sources
+    WHERE source_id = ?1
+    LIMIT 1`)
+    .bind(id)
+    .first();
+
+  if (!row) return json({ ok: false, error: "source_not_found" }, { status: 404 });
+
+  if (action === "toggle") {
+    if (typeof body.enabled !== "boolean") {
+      return json({ ok: false, error: "invalid_enabled_value" }, { status: 400 });
+    }
+
+    const now = new Date().toISOString();
+    await gate.db.prepare(`UPDATE monitored_sources
+      SET enabled = ?1, updated_at = ?2
+      WHERE source_id = ?3`)
+      .bind(body.enabled ? 1 : 0, now, id)
+      .run();
+
+    return json({ ok: true, action, id, enabled: body.enabled, updatedAt: now });
+  }
+
+  if (action === "update") {
+    const existing = managedSourceRowToEntry(row);
+    let source;
+    try {
+      source = normalizeManagedSourceInput(body, existing);
+    } catch (error) {
+      return sourceErrorResponse(error);
+    }
+
+    const coreDuplicate = Object.values(SOURCE_REGISTRY).some(entry => {
+      try {
+        return normalizeManagedSourceUrl(entry.url) === source.url;
+      } catch {
+        return entry.url === source.url;
+      }
+    });
+    if (coreDuplicate) return sourceErrorResponse(new Error("duplicate_source_url"), 409);
+
+    const now = new Date().toISOString();
+    try {
+      await gate.db.prepare(`UPDATE monitored_sources
+        SET market_id = ?1,
+            label = ?2,
+            url = ?3,
+            source_type = ?4,
+            cadence_hours = ?5,
+            priority = ?6,
+            entity_tags_json = ?7,
+            updated_at = ?8
+        WHERE source_id = ?9`)
+        .bind(
+          source.marketId,
+          source.label,
+          source.url,
+          source.type,
+          source.cadenceHours,
+          source.priority,
+          JSON.stringify(source.entityTags),
+          now,
+          id
+        )
+        .run();
+    } catch (error) {
+      return sourceErrorResponse(error, 409);
+    }
+
+    return json({
+      ok: true,
+      action,
+      source: {
+        id,
+        ...source,
+        enabled: Number(row.enabled) === 1,
+        origin: row.origin || "manual",
+        editable: true,
+        createdBy: row.created_by || null,
+        createdAt: row.created_at || null,
+        updatedAt: now
+      }
+    });
+  }
+
+  return json({ ok: false, error: "unsupported_source_action" }, { status: 400 });
+}
+
+async function sourceCoverage(request, env, ctx) {
+  const gate = await requireWorkspaceContext(request, env, ctx);
+  if (gate.response) return gate.response;
+
+  const schemaVersion = await getSchemaVersion(gate.db);
+  if (schemaVersion < 4) return migrationRequired(schemaVersion, 4);
+
+  const [catalog, sourceStates] = await Promise.all([
+    loadSourceCatalog(gate.db),
+    loadSourceScheduleStates(gate.db)
+  ]);
+  const markets = buildSourceCoverage(catalog, sourceStates);
+  const gaps = markets.flatMap(market =>
+    market.gaps.map(gap => ({ marketId: market.marketId, ...gap }))
+  );
+  const atRisk = markets.flatMap(market =>
+    market.atRisk.map(item => ({ marketId: market.marketId, ...item }))
+  );
+  const attentionQueue = markets
+    .flatMap(market =>
+      market.pillars
+        .map(pillar => coverageAttentionItem(market.marketId, pillar))
+        .filter(Boolean)
+    )
+    .sort((a, b) =>
+      b.order - a.order ||
+      String(a.marketId).localeCompare(String(b.marketId)) ||
+      String(a.label).localeCompare(String(b.label))
+    )
+    .map(({ order, ...item }) => item);
+
+  return json({
+    ok: true,
+    pillars: SOURCE_COVERAGE_PILLARS.map(pillar => ({
+      id: pillar.id,
+      label: pillar.label,
+      types: pillar.types
+    })),
+    summary: {
+      markets: markets.length,
+      completeMarkets: markets.filter(market => market.complete).length,
+      operationalCompleteMarkets: markets.filter(market => market.operationalComplete).length,
+      gaps: gaps.length,
+      atRisk: atRisk.length,
+      attention: attentionQueue.length,
+      activeSources: Object.keys(catalog).length
+    },
+    markets,
+    gaps,
+    atRisk,
+    attentionQueue
+  });
+}
+
+async function discoveryInbox(request, env, ctx, url) {
+  const gate = await requireWorkspaceContext(request, env, ctx);
+  if (gate.response) return gate.response;
+
+  const schemaVersion = await getSchemaVersion(gate.db);
+  if (schemaVersion < 3) return migrationRequired(schemaVersion, 3);
+
+  const requestedStatus = String(url.searchParams.get("status") || "pending");
+  const status = ["pending", "accepted", "dismissed", "all"].includes(requestedStatus)
+    ? requestedStatus
+    : "pending";
+
+  const sql = status === "all"
+    ? `SELECT id, source_id, market_id, candidate_type, content_hash,
+        title, summary, source_url, status, detected_at,
+        reviewed_at, reviewed_by, review_note
+       FROM discovery_candidates
+       ORDER BY detected_at DESC, id DESC
+       LIMIT 100`
+    : `SELECT id, source_id, market_id, candidate_type, content_hash,
+        title, summary, source_url, status, detected_at,
+        reviewed_at, reviewed_by, review_note
+       FROM discovery_candidates
+       WHERE status = ?1
+       ORDER BY detected_at DESC, id DESC
+       LIMIT 100`;
+
+  const statement = gate.db.prepare(sql);
+  const result = status === "all"
+    ? await statement.all()
+    : await statement.bind(status).all();
+
+  const counts = await gate.db.prepare(`SELECT
+      SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) AS accepted,
+      SUM(CASE WHEN status = 'dismissed' THEN 1 ELSE 0 END) AS dismissed
+    FROM discovery_candidates`).first();
+
+  return json({
+    ok: true,
+    status,
+    counts: {
+      pending: Number(counts?.pending || 0),
+      accepted: Number(counts?.accepted || 0),
+      dismissed: Number(counts?.dismissed || 0)
+    },
+    candidates: result?.results || []
+  });
+}
+
+async function reviewDiscoveryCandidate(request, env, ctx) {
+  const gate = await requireWorkspaceContext(request, env, ctx);
+  if (gate.response) return gate.response;
+
+  const schemaVersion = await getSchemaVersion(gate.db);
+  if (schemaVersion < 3) return migrationRequired(schemaVersion, 3);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ ok: false, error: "invalid_json" }, { status: 400 });
+  }
+
+  const id = Number(body?.id);
+  const action = String(body?.action || "");
+  const note = String(body?.note || "").slice(0, 800);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return json({ ok: false, error: "invalid_candidate_id" }, { status: 400 });
+  }
+
+  if (!["accept", "dismiss", "reopen"].includes(action)) {
+    return json({ ok: false, error: "unsupported_review_action" }, { status: 400 });
+  }
+
+  const nextStatus = action === "accept"
+    ? "accepted"
+    : action === "dismiss"
+      ? "dismissed"
+      : "pending";
+
+  const now = new Date().toISOString();
+  const result = await gate.db.prepare(`UPDATE discovery_candidates
+    SET status = ?1,
+        reviewed_at = ?2,
+        reviewed_by = ?3,
+        review_note = ?4,
+        updated_at = ?2
+    WHERE id = ?5`)
+    .bind(nextStatus, now, gate.identity.email, note, id)
+    .run();
+
+  if ((result?.meta?.changes || 0) !== 1) {
+    return json({ ok: false, error: "candidate_not_found" }, { status: 404 });
+  }
+
+  return json({
+    ok: true,
+    id,
+    status: nextStatus,
+    reviewedAt: now,
+    reviewedBy: gate.identity.email
   });
 }
 
@@ -606,7 +1769,8 @@ async function reviewSourceChange(request, env, ctx) {
   const action = String(body?.action || "");
   const note = String(body?.note || "").slice(0, 500);
 
-  if (!SOURCE_REGISTRY[id]) {
+  const source = await findSourceEntry(id, gate.db, { includeDisabled: true });
+  if (!source) {
     return json({ ok: false, error: "unknown_source" }, { status: 404 });
   }
   if (action !== "accept") {
@@ -643,17 +1807,17 @@ async function reviewSourceChange(request, env, ctx) {
   });
 }
 
-async function sourceWatchHistory(url, env) {
-  if (!env.RADAR_DB) {
-    return json({ ok: false, error: "d1_not_configured" }, { status: 503 });
-  }
+async function sourceWatchHistory(url, request, env, ctx) {
+  const gate = await requireWorkspaceContext(request, env, ctx);
+  if (gate.response) return gate.response;
 
   const id = String(url.searchParams.get("id") || "");
-  if (!SOURCE_REGISTRY[id]) {
+  const source = await findSourceEntry(id, gate.db, { includeDisabled: true });
+  if (!source) {
     return json({ ok: false, error: "unknown_source" }, { status: 404 });
   }
 
-  const result = await env.RADAR_DB.prepare(`SELECT
+  const result = await gate.db.prepare(`SELECT
       id, source_id, content_hash, changed, http_status,
       duration_ms, title, error, actor, checked_at
     FROM source_watch_history
@@ -672,6 +1836,7 @@ export default {
 
     if (url.pathname === "/api/health") {
       const identity = await getVerifiedAccessIdentity(request, env, ctx);
+      const schemaVersion = env.RADAR_DB ? await getSchemaVersion(env.RADAR_DB) : 0;
       return json({
         ok: true,
         service: "dcb-expansion-radar",
@@ -681,7 +1846,8 @@ export default {
           database: env.RADAR_DB ? "d1" : "not-configured",
           persistence: env.RADAR_DB ? "d1" : "local-browser",
           sourceWatchPersistence: env.RADAR_DB ? "d1" : "local-browser",
-          accessAuthenticated: Boolean(identity)
+          accessAuthenticated: Boolean(identity),
+          schemaVersion
         },
         timestamp: new Date().toISOString()
       });
@@ -700,30 +1866,254 @@ export default {
     }
 
     if (url.pathname === "/api/sources" && request.method === "GET") {
+      const catalog = await loadSourceCatalog(env.RADAR_DB);
       return json({
-        sources: Object.entries(SOURCE_REGISTRY).map(([id, entry]) => ({
+        sources: Object.entries(catalog).map(([id, entry]) => ({
           id,
           marketId: entry.marketId,
           label: entry.label,
           type: entry.type,
-          url: entry.url
+          url: entry.url,
+          cadenceHours: entry.cadenceHours || 24,
+          priority: entry.priority || "medium",
+          origin: entry.origin || "core",
+          entityTags: entry.entityTags || []
         }))
       });
+    }
+
+    if (url.pathname === "/api/app-discovery" && request.method === "GET") {
+      const gate = await requireWorkspaceContext(request, env, ctx);
+      if (gate.response) return gate.response;
+
+      const schemaVersion = await getSchemaVersion(gate.db);
+      if (schemaVersion < 7) return migrationRequired(schemaVersion, 7);
+
+      return json({
+        ok: true,
+        ...(await listDiscoveryState(gate.db))
+      });
+    }
+
+    if (url.pathname === "/api/app-discovery" && request.method === "POST") {
+      const gate = await requireWorkspaceContext(request, env, ctx);
+      if (gate.response) return gate.response;
+
+      const schemaVersion = await getSchemaVersion(gate.db);
+      if (schemaVersion < 7) return migrationRequired(schemaVersion, 7);
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ ok: false, error: "invalid_json" }, { status: 400 });
+      }
+
+      const action = String(body?.action || "").trim();
+
+      try {
+        if (action === "create_seed") {
+          return json({
+            ok: true,
+            action,
+            seed: await createDiscoverySeed(gate.db, body, gate.identity.email)
+          }, { status: 201 });
+        }
+
+        if (action === "toggle_seed") {
+          if (typeof body?.enabled !== "boolean") {
+            return json({ ok: false, error: "invalid_enabled_value" }, { status: 400 });
+          }
+          return json({
+            ok: true,
+            action,
+            seed: await toggleDiscoverySeed(gate.db, body?.id, body.enabled)
+          });
+        }
+
+        if (action === "run_seed") {
+          return json({
+            ok: true,
+            action,
+            result: await runDiscoverySeedById(gate.db, body?.id, gate.identity.email)
+          });
+        }
+
+        if (action === "preset_pack") {
+          return json({
+            ok: true,
+            action,
+            result: await createPresetPack(gate.db, body?.marketId, gate.identity.email)
+          });
+        }
+
+        if (action === "run_due") {
+          return json({
+            ok: true,
+            action,
+            result: await runDueDiscoverySeeds(gate.db, gate.identity.email, {
+              forceAll: Boolean(body?.forceAll),
+              maxSeeds: Math.max(1, Math.min(Number(body?.maxSeeds || 6), 20))
+            })
+          });
+        }
+
+        if (action === "process_queue") {
+          return json({
+            ok: true,
+            action,
+            result: await processDiscoveryQueue(gate.db, gate.identity.email, {
+              limit: Math.max(1, Math.min(Number(body?.limit || 5), 20))
+            })
+          });
+        }
+
+        if (action === "retry_listing") {
+          return json({
+            ok: true,
+            action,
+            result: await retryDiscoveryListing(gate.db, body?.listingUrl)
+          });
+        }
+
+        return json({ ok: false, error: "unsupported_app_discovery_action" }, { status: 400 });
+      } catch (error) {
+        const code = String(error?.message || error || "app_discovery_failed");
+        return json({
+          ok: false,
+          error: APP_DISCOVERY_ERRORS.has(code) ? code : "app_discovery_failed",
+          detail: APP_DISCOVERY_ERRORS.has(code) ? undefined : code
+        }, {
+          status: ["app_seed_not_found", "app_listing_not_found"].includes(code) ? 404 :
+            code === "duplicate_app_seed" ? 409 : 400
+        });
+      }
+    }
+
+    if (url.pathname === "/api/publisher-discovery" && request.method === "GET") {
+      const gate = await requireWorkspaceContext(request, env, ctx);
+      if (gate.response) return gate.response;
+
+      const schemaVersion = await getSchemaVersion(gate.db);
+      if (schemaVersion < 6) return migrationRequired(schemaVersion, 6);
+
+      const result = await listCommercialEntities(gate.db, {
+        status: String(url.searchParams.get("status") || ""),
+        marketId: String(url.searchParams.get("market") || ""),
+        role: String(url.searchParams.get("role") || ""),
+        query: String(url.searchParams.get("q") || "")
+      });
+
+      return json({ ok: true, ...result });
+    }
+
+    if (url.pathname === "/api/publisher-discovery/scan-app" && request.method === "POST") {
+      const gate = await requireWorkspaceContext(request, env, ctx);
+      if (gate.response) return gate.response;
+
+      const schemaVersion = await getSchemaVersion(gate.db);
+      if (schemaVersion < 6) return migrationRequired(schemaVersion, 6);
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ ok: false, error: "invalid_json" }, { status: 400 });
+      }
+
+      try {
+        const scan = await scanAppListing(
+          body?.url,
+          body?.marketId || null,
+          ALLOWED_SOURCE_MARKETS
+        );
+        const row = await persistAppScan(gate.db, scan, gate.identity.email);
+
+        return json({
+          ok: true,
+          scan,
+          entity: {
+            id: row.entity_id,
+            name: row.name,
+            role: row.primary_role,
+            marketId: row.market_id,
+            domain: row.domain,
+            websiteUrl: row.website_url,
+            status: row.status,
+            confidence: row.confidence,
+            reason: row.discovery_reason,
+            firstSourceKind: row.first_source_kind
+          }
+        });
+      } catch (error) {
+        const code = String(error?.message || error || "publisher_scan_failed");
+        const clientError = PUBLISHER_DISCOVERY_ERRORS.has(code);
+        return json({
+          ok: false,
+          error: clientError ? code : "publisher_scan_failed",
+          detail: clientError ? undefined : code,
+          httpStatus: error?.httpStatus ?? null,
+          durationMs: error?.durationMs ?? null
+        }, { status: clientError ? 400 : 422 });
+      }
+    }
+
+    if (url.pathname === "/api/publisher-discovery/review" && request.method === "POST") {
+      const gate = await requireWorkspaceContext(request, env, ctx);
+      if (gate.response) return gate.response;
+
+      const schemaVersion = await getSchemaVersion(gate.db);
+      if (schemaVersion < 6) return migrationRequired(schemaVersion, 6);
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ ok: false, error: "invalid_json" }, { status: 400 });
+      }
+
+      try {
+        return json({
+          ok: true,
+          ...(await reviewCommercialEntity(gate.db, body))
+        });
+      } catch (error) {
+        const code = String(error?.message || error || "publisher_review_failed");
+        return json({
+          ok: false,
+          error: PUBLISHER_DISCOVERY_ERRORS.has(code) ? code : "publisher_review_failed"
+        }, { status: code === "entity_not_found" ? 404 : 400 });
+      }
+    }
+
+    if (url.pathname === "/api/source-manager" && (request.method === "GET" || request.method === "POST")) {
+      return sourceManager(request, env, ctx);
+    }
+
+    if (url.pathname === "/api/source-coverage" && request.method === "GET") {
+      return sourceCoverage(request, env, ctx);
     }
 
     if (url.pathname === "/api/automation/health" && request.method === "GET") {
       return automationHealth(request, env, ctx);
     }
 
+    if (url.pathname === "/api/discovery/inbox" && request.method === "GET") {
+      return discoveryInbox(request, env, ctx, url);
+    }
+
+    if (url.pathname === "/api/discovery/review" && request.method === "POST") {
+      return reviewDiscoveryCandidate(request, env, ctx);
+    }
+
     if (url.pathname === "/api/source-watch/state" && request.method === "GET") {
-      if (!env.RADAR_DB) {
-        return json({ ok: false, error: "d1_not_configured" }, { status: 503 });
-      }
-      return json({ ok: true, state: await getSourceState(env.RADAR_DB) });
+      const gate = await requireWorkspaceContext(request, env, ctx);
+      if (gate.response) return gate.response;
+      return json({ ok: true, state: await getSourceState(gate.db) });
     }
 
     if (url.pathname === "/api/source-watch/history" && request.method === "GET") {
-      return sourceWatchHistory(url, env);
+      return sourceWatchHistory(url, request, env, ctx);
     }
 
     if (url.pathname === "/api/source-watch/review" && request.method === "POST") {
@@ -737,8 +2127,9 @@ export default {
     }
 
     if (url.pathname === "/api/check-source" && request.method === "GET") {
-      const id = url.searchParams.get("id");
-      if (!id || !SOURCE_REGISTRY[id]) {
+      const id = String(url.searchParams.get("id") || "");
+      const entry = id ? await findSourceEntry(id, env.RADAR_DB) : null;
+      if (!entry) {
         return json({ ok: false, error: "unknown_source" }, { status: 404 });
       }
 
@@ -752,9 +2143,8 @@ export default {
       }
 
       try {
-        return json(await checkSourceById(id, env, identity?.email || "manual"));
+        return json(await checkSourceById(id, env, identity?.email || "manual", entry));
       } catch (error) {
-        const entry = SOURCE_REGISTRY[id];
         return json({
           ok: false,
           id,
@@ -808,7 +2198,14 @@ export default {
           "source-watch",
           "source-watch-history",
           "d1-workspace-sync",
-          "scheduled-source-checks-ready"
+          "scheduled-source-checks-ready",
+          "automation-health",
+          "discovery-inbox",
+          "source-coverage",
+          "publisher-discovery",
+          "app-store-publisher-scan",
+          "app-store-seed-discovery",
+          "publisher-discovery-queue"
         ],
         nextBackendStep: !env.RADAR_DB
           ? "bind-d1-database"
@@ -827,6 +2224,15 @@ export default {
 
   async scheduled(_controller, env, ctx) {
     if (!env.RADAR_DB) return;
-    ctx.waitUntil(runAllSourceChecks(env, "cron"));
+
+    ctx.waitUntil(runAllSourceChecks(env, "cron", { respectCadence: true }));
+
+    ctx.waitUntil((async () => {
+      const schemaVersion = await getSchemaVersion(env.RADAR_DB);
+      if (schemaVersion < 7) return;
+
+      await runDueDiscoverySeeds(env.RADAR_DB, "cron", { maxSeeds: 4 });
+      await processDiscoveryQueue(env.RADAR_DB, "cron", { limit: 5 });
+    })());
   }
 };

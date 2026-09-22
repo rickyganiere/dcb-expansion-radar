@@ -2,7 +2,7 @@ name: Validate Radar
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feature/**"]
   pull_request:
 
 permissions:
@@ -36,7 +36,14 @@ jobs:
           node --check public/followup-alerts.js
           node --check public/market-report.js
           node --check public/d1-sync.js
+          node --check public/automation-health.js
+          node --check public/discovery-inbox.js
+          node --check public/source-manager.js
+          node --check public/publisher-discovery.js
+          node --check public/app-discovery.js
           node --check src/source-registry.js
+          node --check src/publisher-discovery.js
+          node --check src/app-discovery.js
           node --check src/access-auth.js
           node --check src/index.js
           node --check scripts/validate-d1.mjs
@@ -47,9 +54,28 @@ jobs:
       - name: Smoke test Worker API
         run: node scripts/smoke-worker.mjs
 
+      - name: Smoke test Publisher Discovery
+        run: node scripts/smoke-publisher-discovery.mjs
+
+      - name: Smoke test App Discovery
+        run: node scripts/smoke-app-discovery.mjs
+
       - name: Check required static assets
         run: |
           test -f public/index.html
           test -f public/styles.css
           test -f wrangler.jsonc
           test -f migrations/0001_workspace.sql
+          test -f migrations/0002_source_watch.sql
+          test -f migrations/0003_discovery_inbox.sql
+          test -f migrations/0004_monitored_sources.sql
+          test -f migrations/0005_source_entity_tags.sql
+          test -f migrations/0006_commercial_entities.sql
+          test -f migrations/0007_app_discovery_queue.sql
+          test -f public/automation-health.js
+          test -f public/discovery-inbox.js
+          test -f public/source-manager.js
+          test -f public/publisher-discovery.js
+          test -f src/publisher-discovery.js
+          test -f public/app-discovery.js
+          test -f src/app-discovery.js

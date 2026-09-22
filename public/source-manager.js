@@ -1,0 +1,666 @@
+(() => {
+  let cachedSources = [];
+  let editingId = null;
+  let coveragePayload = null;
+
+  function esc(value) {
+    return String(value ?? "").replace(/[&<>"']/g, c => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    }[c]));
+  }
+
+  function csvEscape(value) {
+    const text = String(value ?? "");
+    return '"' + text.replace(/"/g, '""') + '"';
+  }
+
+  function downloadText(filename, text, type = "text/plain") {
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function parseCsvLine(line) {
+    const out = [];
+    let current = "";
+    let quoted = false;
+
+    for (let i = 0; i < line.length; i += 1) {
+      const ch = line[i];
+      if (quoted) {
+        if (ch === '"' && line[i + 1] === '"') {
+          current += '"';
+          i += 1;
+        } else if (ch === '"') {
+          quoted = false;
+        } else {
+          current += ch;
+        }
+      } else if (ch === '"') {
+        quoted = true;
+      } else if (ch === ",") {
+        out.push(current);
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+    out.push(current);
+    return out.map(value => value.trim());
+  }
+
+  function parseBulkText(text) {
+    const lines = String(text || "")
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    if (!lines.length) return [];
+
+    const first = parseCsvLine(lines[0]).map(x => x.toLowerCase());
+    const hasHeader = first.includes("url") && first.includes("label");
+    const headers = hasHeader
+      ? first
+      : ["marketid","label","url","type","cadencehours","priority"];
+
+    const start = hasHeader ? 1 : 0;
+    return lines.slice(start).map(line => {
+      const values = parseCsvLine(line);
+      const row = {};
+      headers.forEach((header, index) => {
+        row[header] = values[index] ?? "";
+      });
+
+      return {
+        marketId: row.marketid || row.market || "",
+        label: row.label || "",
+        url: row.url || "",
+        type: row.type || "billing_route",
+        cadenceHours: Number(row.cadencehours || row.cadence || 24),
+        priority: row.priority || "medium",
+        entityTags: String(row.entitytags || row.tags || "")
+          .split(/[;|]/)
+          .map(tag => tag.trim())
+          .filter(Boolean)
+      };
+    });
+  }
+
+  function cadenceLabel(hours) {
+    const value = Number(hours || 24);
+    if (value === 12) return "Every 12h";
+    if (value === 24) return "Daily";
+    if (value === 72) return "Every 3 days";
+    if (value === 168) return "Weekly";
+    return "Every " + value + "h";
+  }
+
+  function typeLabel(type) {
+    return String(type || "").replaceAll("_", " ");
+  }
+
+  function marketOptions(selected = "") {
+    return (window.RADAR_DATA?.markets || []).map(m =>
+      '<option value="' + esc(m.id) + '"' + (m.id === selected ? " selected" : "") + ">" +
+      esc(m.name) + "</option>"
+    ).join("");
+  }
+
+  function installStyles() {
+    if (document.getElementById("sourceManagerStyles")) return;
+    const style = document.createElement("style");
+    style.id = "sourceManagerStyles";
+    style.textContent =
+      ".sourceManagerDialog{width:min(1040px,95vw);max-height:90vh}.sourceManagerBody{padding:22px}.coverageAttention{margin:12px 0;padding:13px}.coverageAttentionList{display:grid;gap:7px;margin-top:9px}.coverageAttentionItem{display:grid;grid-template-columns:110px 1fr auto;gap:10px;align-items:center;padding:10px}.coverageUrgency{font-size:9px;text-transform:uppercase;letter-spacing:.04em}.coverageUrgency.critical{color:#ff9e9e}.coverageUrgency.high{color:#ffd27d}.coverageUrgency.medium{color:#b9c8d5}.coverageAttentionReason{font-size:10px;color:var(--muted);margin-top:3px}.sourceCoverage{margin:12px 0;padding:13px}.sourceCoverageGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.sourceCoverageCard{padding:12px}.sourceCoverageHead{display:flex;justify-content:space-between;gap:8px;align-items:center}.sourceCoveragePillars{display:grid;gap:6px;margin-top:8px}.sourceCoveragePillar{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:10px}.coverageStatus{display:inline-flex;align-items:center;gap:5px}.coverageOk{color:#81efd3}.coverageReview{color:#ffd27d}.coverageDegraded{color:#ff9e9e}.coverageUnchecked{color:#b9c8d5}.coverageGap{color:#ffb2b2}.coverageGapBtn{font-size:9px;padding:4px 7px}.sourceCoverageSummary{font-size:10px;color:var(--muted);margin-top:5px}@media(max-width:760px){.sourceCoverageGrid{grid-template-columns:1fr}}.sourceManagerBulk{margin:12px 0;padding:13px}.sourceManagerBulk textarea{width:100%;min-height:130px;resize:vertical}.sourceManagerBulkActions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.sourceManagerBulkReport{margin-top:8px;font-size:10px;color:var(--muted)}.sourceManagerTop{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.sourceManagerTop h2{margin:5px 0}.sourceManagerTop p{color:var(--muted);font-size:11px;line-height:1.55;margin:0}.sourceManagerCounts{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}.sourceManagerCount{font-size:10px;padding:6px 8px;border:1px solid #29455a;border-radius:999px;color:#b9c8d5}.sourceManagerForm{display:grid;grid-template-columns:1.1fr 1.5fr 2.2fr 1.2fr 1fr 1fr;gap:8px;align-items:end;padding:13px;margin:12px 0}.sourceManagerForm label{display:grid;gap:5px;color:var(--muted);font-size:9px}.sourceManagerForm .input{width:100%;min-width:0}.sourceManagerFormActions{display:flex;gap:7px;grid-column:1/-1}.sourceManagerList{display:grid;gap:8px;margin-top:12px}.sourceManagerRow{display:grid;grid-template-columns:minmax(160px,1.6fr) minmax(120px,.8fr) minmax(110px,.7fr) minmax(90px,.6fr) auto;gap:10px;align-items:center;padding:12px}.sourceManagerRow.disabled{opacity:.58}.sourceManagerName strong{display:block;font-size:12px}.sourceManagerName small{display:block;color:var(--muted);font-size:9px;margin-top:4px;word-break:break-all}.sourceManagerMeta{font-size:10px;color:#c7d5df}.sourceOrigin{display:inline-flex;padding:4px 7px;border:1px solid #29455a;border-radius:999px;font-size:9px;text-transform:uppercase}.sourceOrigin.core{color:#8db5ff}.sourceOrigin.manual,.sourceOrigin.imported{color:#81efd3}.sourceManagerError{color:#ffb2b2;font-size:10px;margin-top:8px}.sourceManagerHint{color:var(--muted);font-size:9px;margin-top:5px}@media(max-width:900px){.sourceManagerForm{grid-template-columns:repeat(2,1fr)}.sourceManagerRow{grid-template-columns:1fr 1fr}.sourceManagerRow .rowActions{grid-column:1/-1}}@media(max-width:620px){.sourceManagerForm{grid-template-columns:1fr}.sourceManagerRow{grid-template-columns:1fr}.sourceManagerTop{display:block}.sourceManagerTop .btn{margin-top:10px}}";
+    document.head.appendChild(style);
+  }
+
+  function ensureDialog() {
+    let dialog = document.getElementById("sourceManagerDialog");
+    if (dialog) return dialog;
+
+    dialog = document.createElement("dialog");
+    dialog.id = "sourceManagerDialog";
+    dialog.className = "sourceManagerDialog";
+    dialog.innerHTML = '<div class="sourceManagerBody" id="sourceManagerBody"></div>';
+    document.body.appendChild(dialog);
+
+    dialog.addEventListener("click", event => {
+      if (event.target === dialog) dialog.close();
+    });
+
+    return dialog;
+  }
+
+  function installButton() {
+    const actions = document.querySelector(".sourceWatchActions");
+    if (!actions || document.getElementById("openSourceManager")) return;
+
+    const button = document.createElement("button");
+    button.id = "openSourceManager";
+    button.type = "button";
+    button.className = "btn ghost";
+    button.textContent = "Manage sources";
+    button.addEventListener("click", open);
+    actions.insertBefore(button, document.getElementById("checkAllSources") || null);
+  }
+
+  function emptyForm() {
+    return {
+      marketId: window.RADAR_DATA?.markets?.[0]?.id || "",
+      label: "",
+      url: "",
+      type: "billing_route",
+      cadenceHours: 24,
+      priority: "medium",
+      entityTags: []
+    };
+  }
+
+  function formHtml(source = null) {
+    const value = source || emptyForm();
+    return '<div class="card sourceManagerForm">' +
+      '<label>Market<select class="input" id="sourceMarket">' + marketOptions(value.marketId) + '</select></label>' +
+      '<label>Label<input class="input" id="sourceLabel" maxlength="160" value="' + esc(value.label || "") + '" placeholder="Official operator / regulator source"></label>' +
+      '<label>HTTPS URL<input class="input" id="sourceUrl" type="url" value="' + esc(value.url || "") + '" placeholder="https://example.com/page"></label>' +
+      '<label>Type<select class="input" id="sourceType">' +
+        ["billing_route","market_update","corporate_change","partner_update","operator_update"].map(type =>
+          '<option value="' + esc(type) + '"' + (type === value.type ? " selected" : "") + ">" + esc(typeLabel(type)) + "</option>"
+        ).join("") +
+      '</select></label>' +
+      '<label>Cadence<select class="input" id="sourceCadence">' +
+        [12,24,72,168].map(hours =>
+          '<option value="' + hours + '"' + (Number(value.cadenceHours) === hours ? " selected" : "") + ">" + esc(cadenceLabel(hours)) + "</option>"
+        ).join("") +
+      '</select></label>' +
+      '<label>Priority<select class="input" id="sourcePriority">' +
+        ["high","medium","low"].map(priority =>
+          '<option value="' + priority + '"' + (priority === value.priority ? " selected" : "") + ">" + priority + "</option>"
+        ).join("") +
+      '</select></label>' +
+      '<label style="grid-column:1/-1">Operators / Partners<input class="input" id="sourceEntityTags" value="' + esc((value.entityTags || []).join(", ")) + '" placeholder="Telcel, AT&T Mexico, Digital Virgo"></label>' +
+      '<div class="sourceManagerFormActions">' +
+        '<button class="btn ghost" id="probeManagedSource" type="button">Test source</button>' +
+        '<button class="btn primary" id="saveManagedSource" type="button">' + (source ? "Save source" : "Add source") + '</button>' +
+        (source ? '<button class="btn ghost" id="cancelSourceEdit" type="button">Cancel edit</button>' : '') +
+      '</div>' +
+      '<div class="sourceManagerHint">Only public HTTPS pages are accepted. New sources feed Source Watch and Discovery Inbox; they never become verified intelligence automatically.</div>' +
+      '<div class="sourceManagerError" id="sourceManagerError"></div>' +
+    '</div>';
+  }
+
+  function coverageStatusHtml(pillar) {
+    const status = pillar?.status || "gap";
+    const map = {
+      healthy: ["coverageOk", "Healthy"],
+      review: ["coverageReview", "Review"],
+      degraded: ["coverageDegraded", "Degraded"],
+      unchecked: ["coverageUnchecked", "Unchecked"],
+      gap: ["coverageGap", "Gap"]
+    };
+    const [className, label] = map[status] || map.gap;
+    return '<span class="coverageStatus ' + className + '">' +
+      esc(label) +
+      (pillar?.sourceCount ? ' · ' + esc(pillar.sourceCount) : '') +
+    '</span>';
+  }
+
+  function attentionQueueHtml(payload) {
+    const items = (payload?.attentionQueue || []).slice(0, 10);
+    if (!items.length) {
+      return '<div class="card coverageAttention"><div class="eyebrow">Attention queue</div><div class="coverageOk">No unresolved source coverage issues.</div></div>';
+    }
+
+    return '<div class="card coverageAttention">' +
+      '<div class="eyebrow">Attention queue</div>' +
+      '<div class="sourceCoverageSummary">Explainable priority: billing → market/regulatory → commercial ecosystem; gaps before unchecked sources.</div>' +
+      '<div class="coverageAttentionList">' +
+        items.map(item => {
+          const marketName = (window.RADAR_DATA?.markets || []).find(m => m.id === item.marketId)?.name || item.marketId;
+          return '<div class="card coverageAttentionItem">' +
+            '<div><div class="coverageUrgency ' + esc(item.urgency) + '">' + esc(item.urgency) + '</div><strong>' + esc(marketName) + '</strong></div>' +
+            '<div><strong>' + esc(item.label) + ' · ' + esc(item.status) + '</strong><div class="coverageAttentionReason">' + esc(item.reason) + '</div></div>' +
+            '<button type="button" class="btn tiny coverageGapBtn" ' +
+              'data-market="' + esc(item.marketId) + '" ' +
+              'data-type="' + esc(item.suggestedType) + '" ' +
+              'data-cadence="' + esc(item.suggestedCadenceHours) + '" ' +
+              'data-priority="' + esc(item.suggestedPriority) + '" ' +
+              'data-label="' + esc(item.label) + '">Add/Test</button>' +
+          '</div>';
+        }).join('') +
+      '</div>' +
+    '</div>';
+  }
+
+  function coverageHtml(payload) {
+    if (!payload) {
+      return '<div class="card sourceCoverage"><div class="eyebrow">Coverage</div><div class="empty">Coverage data unavailable.</div></div>';
+    }
+
+    const summary = payload.summary || {};
+    return '<div class="card sourceCoverage">' +
+      '<div class="eyebrow">Coverage gaps</div>' +
+      '<div class="sourceCoverageSummary">' +
+        esc(summary.completeMarkets || 0) + '/' + esc(summary.markets || 0) + ' structurally complete · ' +
+        esc(summary.operationalCompleteMarkets || 0) + '/' + esc(summary.markets || 0) + ' operationally complete · ' +
+        esc(summary.gaps || 0) + ' gaps · ' +
+        esc(summary.atRisk || 0) + ' at risk · ' +
+        esc(summary.activeSources || 0) + ' active sources' +
+      '</div>' +
+      '<div class="sourceCoverageGrid">' +
+        (payload.markets || []).map(market => {
+          const marketName = (window.RADAR_DATA?.markets || []).find(m => m.id === market.marketId)?.name || market.marketId;
+          return '<div class="card sourceCoverageCard">' +
+            '<div class="sourceCoverageHead"><strong>' + esc(marketName) + '</strong><span class="' + (market.complete ? 'coverageOk' : 'coverageGap') + '">' +
+              esc(market.coveredPillars) + '/' + esc(market.totalPillars) +
+            '</span></div>' +
+            '<div class="sourceCoveragePillars">' +
+              (market.pillars || []).map(pillar =>
+                '<div class="sourceCoveragePillar">' +
+                  '<span>' + esc(pillar.label) + '</span>' +
+                  (pillar.covered
+                    ? coverageStatusHtml(pillar)
+                    : '<button type="button" class="btn tiny coverageGapBtn" ' +
+                        'data-market="' + esc(market.marketId) + '" ' +
+                        'data-type="' + esc(pillar.suggestedType) + '" ' +
+                        'data-cadence="' + esc(pillar.suggestedCadenceHours) + '" ' +
+                        'data-priority="' + esc(pillar.suggestedPriority) + '" ' +
+                        'data-label="' + esc(pillar.label) + '">Add source</button>') +
+                '</div>'
+              ).join('') +
+            '</div>' +
+          '</div>';
+        }).join('') +
+      '</div>' +
+    '</div>';
+  }
+
+  function sourceRow(source) {
+    const origin = source.origin || "core";
+    const actions = source.editable
+      ? '<div class="rowActions">' +
+          '<button class="btn tiny editManagedSource" data-id="' + esc(source.id) + '">Edit</button>' +
+          '<button class="btn tiny toggleManagedSource" data-id="' + esc(source.id) + '" data-enabled="' + (source.enabled ? "0" : "1") + '">' +
+            (source.enabled ? "Disable" : "Enable") +
+          '</button>' +
+        '</div>'
+      : '<div class="rowActions"><span class="sourceManagerHint">Protected core source</span></div>';
+
+    return '<div class="card sourceManagerRow ' + (!source.enabled ? "disabled" : "") + '">' +
+      '<div class="sourceManagerName"><strong>' + esc(source.label) + '</strong><small>' + esc(source.url) + '</small>' +
+        ((source.entityTags || []).length ? '<div class="sourceManagerHint">Entities: ' + esc(source.entityTags.join(", ")) + '</div>' : '') +
+      '</div>' +
+      '<div class="sourceManagerMeta"><strong>' + esc(source.marketId) + '</strong><br>' + esc(typeLabel(source.type)) + '</div>' +
+      '<div class="sourceManagerMeta">' + esc(cadenceLabel(source.cadenceHours)) + '<br>' + esc(source.priority || "medium") + ' priority</div>' +
+      '<div><span class="sourceOrigin ' + esc(origin) + '">' + esc(origin) + '</span><div class="sourceManagerHint">' + (source.enabled ? "Enabled" : "Disabled") + '</div></div>' +
+      actions +
+    '</div>';
+  }
+
+  function render(payload) {
+    const body = document.getElementById("sourceManagerBody");
+    if (!body) return;
+
+    cachedSources = payload.sources || [];
+    const editing = editingId ? cachedSources.find(source => source.id === editingId) : null;
+    if (editingId && !editing) editingId = null;
+
+    body.innerHTML =
+      '<div class="sourceManagerTop"><div><div class="eyebrow">Source Manager</div><h2>Monitored sources</h2>' +
+      '<p>Core sources are protected. Add D1-managed sources without changing code or deploying the Worker.</p></div>' +
+      '<button class="btn ghost" id="closeSourceManager" type="button">Close</button></div>' +
+      '<div class="sourceManagerCounts">' +
+        '<span class="sourceManagerCount">' + esc(payload.counts?.total || 0) + ' total</span>' +
+        '<span class="sourceManagerCount">' + esc(payload.counts?.core || 0) + ' core</span>' +
+        '<span class="sourceManagerCount">' + esc(payload.counts?.custom || 0) + ' custom</span>' +
+        '<span class="sourceManagerCount">' + esc(payload.counts?.enabled || 0) + ' enabled</span>' +
+        '<span class="sourceManagerCount">' + esc(payload.counts?.disabled || 0) + ' disabled</span>' +
+      '</div>' +
+      attentionQueueHtml(coveragePayload) +
+      coverageHtml(coveragePayload) +
+      formHtml(editing) +
+      '<div class="card sourceManagerBulk">' +
+        '<div class="eyebrow">Bulk sources</div>' +
+        '<p class="sourceManagerHint">CSV columns: marketId,label,url,type,cadenceHours,priority,entityTags. Separate multiple entity tags with semicolons. Up to 100 rows per import.</p>' +
+        '<textarea class="input" id="bulkSourceText" placeholder="marketId,label,url,type,cadenceHours,priority\nmexico,Operator billing,https://example.com/billing,billing_route,24,high"></textarea>' +
+        '<div class="sourceManagerBulkActions">' +
+          '<button class="btn ghost" id="previewBulkSources" type="button">Preview import</button>' +
+          '<button class="btn primary" id="importBulkSources" type="button">Import CSV</button>' +
+          '<button class="btn ghost" id="exportSourcesCsv" type="button">Export CSV</button>' +
+          '<button class="btn ghost" id="downloadBulkTemplate" type="button">CSV template</button>' +
+        '</div>' +
+        '<div class="sourceManagerBulkReport" id="bulkSourceReport"></div>' +
+      '</div>' +
+      '<div class="sourceManagerList">' + cachedSources.map(sourceRow).join("") + '</div>';
+
+    document.getElementById("closeSourceManager").onclick = () => ensureDialog().close();
+    document.getElementById("probeManagedSource").onclick = probeSource;
+    document.getElementById("saveManagedSource").onclick = save;
+    document.getElementById("previewBulkSources").onclick = previewBulk;
+    document.getElementById("importBulkSources").onclick = importBulk;
+    document.getElementById("exportSourcesCsv").onclick = exportCsv;
+    document.getElementById("downloadBulkTemplate").onclick = downloadTemplate;
+    document.getElementById("cancelSourceEdit")?.addEventListener("click", () => {
+      editingId = null;
+      render(payload);
+    });
+
+    body.querySelectorAll(".coverageGapBtn").forEach(button => {
+      button.addEventListener("click", () => {
+        editingId = null;
+        const market = button.dataset.market || "";
+        const type = button.dataset.type || "operator_update";
+        const cadence = Number(button.dataset.cadence || 72);
+        const priority = button.dataset.priority || "medium";
+        const label = button.dataset.label || "Coverage source";
+
+        document.getElementById("sourceMarket").value = market;
+        document.getElementById("sourceType").value = type;
+        document.getElementById("sourceCadence").value = String(cadence);
+        document.getElementById("sourcePriority").value = priority;
+        document.getElementById("sourceLabel").value = label + " source";
+        document.getElementById("sourceUrl").value = "";
+        document.getElementById("sourceEntityTags").value = "";
+        document.getElementById("sourceUrl")?.focus();
+        document.getElementById("sourceManagerError").textContent =
+          "Gap selected · add a public HTTPS source, then use Test source.";
+      });
+    });
+
+    body.querySelectorAll(".editManagedSource").forEach(button => {
+      button.addEventListener("click", () => {
+        editingId = button.dataset.id;
+        render(payload);
+        document.getElementById("sourceLabel")?.focus();
+      });
+    });
+
+    body.querySelectorAll(".toggleManagedSource").forEach(button => {
+      button.addEventListener("click", () => toggle(button.dataset.id, button.dataset.enabled === "1", button));
+    });
+  }
+
+  async function request(payload) {
+    const response = await fetch("/api/source-manager", {
+      method: payload ? "POST" : "GET",
+      headers: payload ? { "content-type": "application/json" } : undefined,
+      body: payload ? JSON.stringify(payload) : undefined,
+      cache: "no-store"
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(result.message || result.error || "Source Manager request failed");
+      error.code = result.error;
+      throw error;
+    }
+    return result;
+  }
+
+  function formPayload() {
+    return {
+      marketId: document.getElementById("sourceMarket")?.value || "",
+      label: document.getElementById("sourceLabel")?.value || "",
+      url: document.getElementById("sourceUrl")?.value || "",
+      type: document.getElementById("sourceType")?.value || "",
+      cadenceHours: Number(document.getElementById("sourceCadence")?.value || 24),
+      priority: document.getElementById("sourcePriority")?.value || "medium",
+      entityTags: String(document.getElementById("sourceEntityTags")?.value || "")
+        .split(/[;,]/)
+        .map(tag => tag.trim())
+        .filter(Boolean)
+    };
+  }
+
+  function friendlyError(error) {
+    return ({
+      duplicate_source_url: "This URL is already monitored.",
+      source_url_must_use_https: "Use an HTTPS URL.",
+      source_url_host_not_allowed: "That hostname is not allowed.",
+      source_url_custom_port_not_allowed: "Custom URL ports are not allowed.",
+      invalid_source_market: "Choose a valid market.",
+      invalid_source_label: "Add a source label between 3 and 160 characters.",
+      invalid_source_type: "Choose a valid source type.",
+      invalid_source_cadence: "Choose a supported monitoring cadence.",
+      invalid_source_priority: "Choose a valid priority.",
+      migration_required: "The Source Manager database migration has not been applied yet.",
+      source_probe_failed: "The source could not be monitored successfully.",
+      source_probe_blocked: "The source returned a bot/security challenge.",
+      bulk_sources_required: "Add at least one CSV row.",
+      bulk_source_limit: "Maximum 100 rows per import."
+    })[error.code] || error.message;
+  }
+
+  async function probeSource() {
+    const button = document.getElementById("probeManagedSource");
+    const errorBox = document.getElementById("sourceManagerError");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Testing…";
+    }
+    if (errorBox) errorBox.textContent = "";
+
+    try {
+      const result = await request({ action: "probe", ...formPayload() });
+      const probe = result.probe || {};
+      if (errorBox) {
+        errorBox.style.color = "var(--accent)";
+        errorBox.textContent =
+          "OK · HTTP " + (probe.status ?? "—") +
+          (probe.title ? " · " + probe.title : "") +
+          (probe.durationMs != null ? " · " + probe.durationMs + "ms" : "");
+      }
+    } catch (error) {
+      if (errorBox) {
+        errorBox.style.color = "";
+        errorBox.textContent = friendlyError(error);
+      }
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Test source";
+      }
+    }
+  }
+
+  async function previewBulk() {
+    const textarea = document.getElementById("bulkSourceText");
+    const report = document.getElementById("bulkSourceReport");
+    const button = document.getElementById("previewBulkSources");
+    const sources = parseBulkText(textarea?.value || "");
+
+    if (!sources.length) {
+      if (report) report.textContent = "Nothing to preview.";
+      return;
+    }
+    if (sources.length > 100) {
+      if (report) report.textContent = "Maximum 100 rows per import.";
+      return;
+    }
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Previewing…";
+    }
+
+    try {
+      const result = await request({ action: "bulk_preview", sources });
+      if (report) {
+        report.textContent =
+          (result.valid || 0) + " valid · " +
+          (result.skipped || 0) + " skipped · " +
+          (result.errors || 0) + " errors · no changes saved";
+      }
+    } catch (error) {
+      if (report) report.textContent = friendlyError(error);
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Preview import";
+      }
+    }
+  }
+
+  async function importBulk() {
+    const textarea = document.getElementById("bulkSourceText");
+    const report = document.getElementById("bulkSourceReport");
+    const button = document.getElementById("importBulkSources");
+    const sources = parseBulkText(textarea?.value || "");
+
+    if (!sources.length) {
+      if (report) report.textContent = "Nothing to import.";
+      return;
+    }
+    if (sources.length > 100) {
+      if (report) report.textContent = "Maximum 100 rows per import.";
+      return;
+    }
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Importing…";
+    }
+    if (report) report.textContent = "";
+
+    try {
+      const result = await request({ action: "bulk_create", sources });
+      const parts = [
+        (result.created || 0) + " created",
+        (result.skipped || 0) + " skipped",
+        (result.errors || 0) + " errors"
+      ];
+      if (report) report.textContent = parts.join(" · ");
+      await load();
+      window.dispatchEvent(new CustomEvent("radar:sources-updated"));
+    } catch (error) {
+      if (report) report.textContent = friendlyError(error);
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Import CSV";
+      }
+    }
+  }
+
+  function exportCsv() {
+    const headers = ["id","marketId","label","url","type","cadenceHours","priority","entityTags","enabled","origin"];
+    const rows = [headers.join(",")].concat(
+      cachedSources.map(source => [
+        source.id,
+        source.marketId,
+        source.label,
+        source.url,
+        source.type,
+        source.cadenceHours,
+        source.priority,
+        (source.entityTags || []).join(";"),
+        source.enabled ? 1 : 0,
+        source.origin
+      ].map(csvEscape).join(","))
+    );
+    downloadText("dcb-radar-sources.csv", rows.join("\n"), "text/csv");
+  }
+
+  function downloadTemplate() {
+    const text = [
+      "marketId,label,url,type,cadenceHours,priority,entityTags",
+      'mexico,"Example billing page","https://example.com/billing",billing_route,24,high,"Telcel;AT&T Mexico"'
+    ].join("\n");
+    downloadText("dcb-radar-source-template.csv", text, "text/csv");
+  }
+
+  async function save() {
+    const button = document.getElementById("saveManagedSource");
+    const errorBox = document.getElementById("sourceManagerError");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Saving…";
+    }
+    if (errorBox) errorBox.textContent = "";
+
+    try {
+      const fields = formPayload();
+      const payload = editingId
+        ? { action: "update", id: editingId, ...fields }
+        : { action: "create", ...fields };
+
+      await request(payload);
+      editingId = null;
+      await load();
+      window.dispatchEvent(new CustomEvent("radar:sources-updated"));
+    } catch (error) {
+      if (errorBox) errorBox.textContent = friendlyError(error);
+      if (button) {
+        button.disabled = false;
+        button.textContent = editingId ? "Save source" : "Add source";
+      }
+    }
+  }
+
+  async function toggle(id, enabled, button) {
+    button.disabled = true;
+    const original = button.textContent;
+    button.textContent = "Saving…";
+
+    try {
+      await request({ action: "toggle", id, enabled });
+      await load();
+      window.dispatchEvent(new CustomEvent("radar:sources-updated"));
+    } catch (error) {
+      alert(friendlyError(error));
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
+  async function load() {
+    const body = document.getElementById("sourceManagerBody");
+    if (body) body.innerHTML = '<div class="empty">Loading sources…</div>';
+
+    try {
+      const [payload, coverageResponse] = await Promise.all([
+        request(),
+        fetch("/api/source-coverage", { cache: "no-store" })
+          .then(async response => {
+            const result = await response.json().catch(() => null);
+            if (!response.ok) return null;
+            return result;
+          })
+          .catch(() => null)
+      ]);
+      coveragePayload = coverageResponse;
+      render(payload);
+    } catch (error) {
+      if (body) {
+        body.innerHTML =
+          '<div class="eyebrow">Source Manager</div><h2>Unable to load sources</h2>' +
+          '<p class="sourceManagerError">' + esc(friendlyError(error)) + '</p>' +
+          '<button class="btn ghost" id="closeSourceManager" type="button">Close</button>';
+        document.getElementById("closeSourceManager")?.addEventListener("click", () => ensureDialog().close());
+      }
+    }
+  }
+
+  function open() {
+    const dialog = ensureDialog();
+    dialog.showModal();
+    load();
+  }
+
+  function init() {
+    installStyles();
+    ensureDialog();
+    installButton();
+  }
+
+  document.readyState === "loading"
+    ? document.addEventListener("DOMContentLoaded", init)
+    : init();
+})();

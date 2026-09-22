@@ -52,6 +52,7 @@ Current migrations:
 ```text
 0001_workspace.sql
 0002_source_watch.sql
+0003_discovery_inbox.sql
 ```
 
 ## Verify
@@ -60,10 +61,10 @@ Current migrations:
 npx wrangler d1 execute dcb-expansion-radar --remote --command "SELECT key, value FROM app_meta;"
 ```
 
-Expected schema version after both migrations:
+Expected schema version after all migrations:
 
 ```text
-schema_version = 2
+schema_version = 3
 ```
 
 ## Cloudflare Access
@@ -89,3 +90,12 @@ Recommended initial schedule:
 ```
 
 This checks monitored sources twice per day, at 06:00 and 18:00 UTC, using the same Worker.
+
+
+## Discovery Inbox
+
+Migration `0003_discovery_inbox.sql` is backwards-compatible with the current production worker.
+
+Apply the migration before merging the feature branch. This allows the existing Worker to continue running while the new Worker later starts writing reviewable discovery candidates.
+
+A changed source creates a candidate only when its content hash differs from the reviewed Source Watch baseline. Repeated checks with the same changed hash do not create duplicates.

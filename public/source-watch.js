@@ -15,6 +15,10 @@
     localStorage.setItem(STORE_KEY, JSON.stringify(localState));
   }
 
+  function notifySourceWatchUpdated(detail = {}) {
+    window.dispatchEvent(new CustomEvent("radar:source-watch-updated", { detail }));
+  }
+
   function esc(value) {
     return String(value ?? "").replace(/[&<>"']/g, c => ({
       "&": "&amp;",
@@ -27,6 +31,14 @@
 
   function marketName(id) {
     return (window.RADAR_DATA?.markets || []).find(m => m.id === id)?.name || id;
+  }
+
+  function cadenceLabel(hours) {
+    const value = Number(hours || 24);
+    if (value < 24) return "Every " + value + "h";
+    if (value === 24) return "Daily";
+    if (value % 24 === 0) return "Every " + (value / 24) + " days";
+    return "Every " + value + "h";
   }
 
   function installStyles() {
@@ -103,6 +115,8 @@
       const row = centralRow(source.id);
       if (!row) return { cls: "", label: "Unchecked" };
       if (Number(row.changed) === 1) return { cls: "changed", label: "Change pending" };
+      if (/bot challenge/i.test(String(row.last_error || ""))) return { cls: "error", label: "Bot challenge" };
+      if (Number(row.last_http_status) === 429) return { cls: "error", label: "Rate limited" };
       if (row.last_error) return { cls: "error", label: "Check failed" };
       if (row.last_hash && row.baseline_hash) return { cls: "same", label: "No change" };
       return { cls: "baseline", label: "Baseline pending" };
@@ -180,7 +194,7 @@
       return '<tr class="sourceWatchRow ' + (changed ? "changedRow" : "") + '">' +
         '<td><strong>' + esc(marketName(source.marketId)) + '</strong></td>' +
         '<td><strong>' + esc(source.label) + '</strong><span class="sourceWatchMeta">' + esc(meta.detail) + '</span></td>' +
-        '<td>' + esc(source.type.replaceAll("_"," ")) + '</td>' +
+        '<td>' + esc(source.type.replaceAll("_"," ")) + '<span class="sourceWatchMeta">' + esc(cadenceLabel(source.cadenceHours)) + ' · ' + esc(source.priority || "medium") + ' priority</span></td>' +
         '<td>' + esc(meta.when) + '</td>' +
         '<td><span class="watchStatus ' + esc(status.cls) + '">' + esc(status.label) + '</span></td>' +
         '<td><div class="rowActions"><button class="btn tiny checkSourceBtn" data-source-id="' + esc(source.id) + '">Check</button>' + accept + history + '<a class="btn tiny profileLink" href="' + esc(source.url) + '" target="_blank" rel="noreferrer">Open ↗</a></div></td>' +
@@ -259,6 +273,7 @@
 
       if (result.persisted) {
         await refreshCentralState();
+        notifySourceWatchUpdated({ sourceId: id, mode: "single-check" });
       } else {
         const baselineHash = previous?.baselineHash || previous?.hash || null;
         const hadBaseline = Boolean(baselineHash);
@@ -291,7 +306,8 @@
         };
         saveLocalState();
       } else {
-        alert(String(error?.message || error));
+        await refreshCentralState();
+        render();
       }
       render();
       return false;
@@ -315,6 +331,7 @@
         if (!response.ok) throw new Error(payload.message || payload.error || "Review failed");
         await refreshCentralState();
         render();
+        notifySourceWatchUpdated({ sourceId: id, mode: "baseline-review" });
       } catch (error) {
         alert(String(error?.message || error));
       }
@@ -354,6 +371,7 @@
         progress.textContent = "Done · " + payload.checked + " checked · " + payload.changed + " changed · " + payload.failed + " failed";
         await refreshCentralState();
         render();
+        notifySourceWatchUpdated({ mode: "full-check", summary: payload });
         return;
       }
 
@@ -428,6 +446,7 @@
   function init() {
     installStyles();
     installSection();
+    window.addEventListener("radar:sources-updated", loadSources);
     loadSources();
   }
 

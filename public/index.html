@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>DCB Expansion Radar</title>
-  <meta name="description" content="Market expansion intelligence for DCB, VAS and OTT teams">
+  <meta name="description" content="Market expansion and publisher discovery intelligence for DCB, VAS and OTT teams">
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
 <div class="shell">
   <aside class="sidebar">
     <div class="brand">DCB <span>Expansion Radar</span></div>
-    <div class="subbrand">Market intelligence for OTT &amp; VAS</div>
+    <div class="subbrand">Market + publisher intelligence for OTT &amp; VAS</div>
     <nav class="nav">
       <a href="#overview">Overview</a>
       <a href="#markets">Markets</a>
@@ -28,9 +28,9 @@
       <div>
         <div class="eyebrow">LATAM expansion intelligence</div>
         <h1>Where should you launch next?</h1>
-        <p class="lede">Search operators, billing rails, OTT distribution and commercial targets. Build a shortlist, compare markets and generate first-touch outreach from the same workspace.</p>
+        <p class="lede">Search operators, billing rails, OTT distribution, publishers and commercial targets. Build a shortlist, qualify partners and generate first-touch outreach from the same workspace.</p>
       </div>
-      <div class="topBadges"><div class="badge" id="liveBadge">Live prototype</div><div class="badge apiBadge" id="apiStatus">API checking…</div></div>
+      <div class="topBadges"><div class="badge" id="liveBadge">Operational</div><div class="badge apiBadge" id="apiStatus">API checking…</div></div>
     </header>
 
     <section class="kpis">
@@ -108,21 +108,21 @@
       <div class="sectionHeader">
         <div>
           <h2>How to use the radar</h2>
-          <p>This first working version is already usable without a backend.</p>
+          <p>Use the radar as a complete expansion workspace, with authenticated D1 persistence and automated source monitoring.</p>
         </div>
       </div>
       <div class="kpis">
         <article class="card kpi"><span>1 · Discover</span><strong>Search</strong><small>Find markets, operators, rails and ecosystem companies.</small></article>
-        <article class="card kpi"><span>2 · Prioritize</span><strong>Shortlist</strong><small>Save the markets you want to work. Stored locally on this device.</small></article>
+        <article class="card kpi"><span>2 · Prioritize</span><strong>Shortlist</strong><small>Save markets to your authenticated workspace with local fallback.</small></article>
         <article class="card kpi"><span>3 · Decide</span><strong>Compare</strong><small>Compare up to three live markets and their verified billing routes.</small></article>
         <article class="card kpi"><span>4 · Act</span><strong>Outreach</strong><small>Generate and copy a first-touch commercial email for a target company.</small></article>
       </div>
       <div class="card note">
-        Current data is evidence-backed but manually curated. The next backend phase will move the same schema into Supabase and add automated discovery, change detection, contact enrichment and shared team persistence.
+        Current intelligence is evidence-backed and reviewed before commercial use. D1 persists the workspace and Source Watch history, while automated source changes enter the Discovery Inbox for human review before they affect market intelligence.
       </div>
     </section>
 
-    <div class="footer">DCB Expansion Radar · prototype intelligence layer · evidence last reviewed 21 September 2026</div>
+    <div class="footer">DCB Expansion Radar · operational intelligence workspace · automated source monitoring enabled</div>
   </main>
 </div>
 
@@ -140,9 +140,14 @@
 <script src="./app.js"></script>
 <script src="./workspace-tools.js"></script>
 <script src="./source-watch.js"></script>
+<script src="./source-manager.js"></script>
 <script src="./market-notes.js"></script>
 <script src="./followup-alerts.js"></script>
 <script src="./market-report.js"></script>
 <script src="./d1-sync.js"></script>
+<script src="./automation-health.js"></script>
+<script src="./discovery-inbox.js"></script>
+<script src="./publisher-discovery.js"></script>
+<script src="./app-discovery.js"></script>
 </body>
 </html>

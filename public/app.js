@@ -31,7 +31,7 @@
     if ($("#kpiContacts")) $("#kpiContacts").textContent = contacts;
     if ($("#kpiTargets")) $("#kpiTargets").textContent = targets;
     if ($("#kpiLiveNames")) $("#kpiLiveNames").textContent = liveMarkets.map(m=>m.name).join(" · ");
-    if ($("#liveBadge")) $("#liveBadge").textContent = "Live prototype · "+liveMarkets.length+" evidence-backed markets";
+    if ($("#liveBadge")) $("#liveBadge").textContent = "Operational · "+liveMarkets.length+" evidence-backed markets";
   }
 
   async function checkApiStatus() {
@@ -41,7 +41,11 @@
       const response = await fetch("/api/health", { cache: "no-store" });
       if (!response.ok) throw new Error("API unavailable");
       const health = await response.json();
-      el.textContent = health.backend?.database === "configured" ? "API + DB online" : "API online · DB pending";
+      const dbOnline = health.backend?.database === "d1";
+      const schemaVersion = Number(health.backend?.schemaVersion || 0);
+      el.textContent = dbOnline
+        ? "API + D1" + (schemaVersion ? " v" + schemaVersion : "") + " online"
+        : "API online · DB pending";
       el.classList.add("apiOnline");
     } catch {
       el.textContent = "API pending";
@@ -362,6 +366,9 @@ Ricky`;
     renderPipelineCount();
   }
 
+  window.RADAR_ADD_PIPELINE = addPipeline;
+  window.RADAR_OPEN_PIPELINE = openPipeline;
+
   function openPipeline() {
     const entries = Object.values(state.pipeline);
     const stages = ["New","Researching","Contacted","Follow-up","Partnering","Closed"];
@@ -370,7 +377,7 @@ Ricky`;
     body.innerHTML = `
       <div class="eyebrow">Commercial workspace</div>
       <h2>Pipeline</h2>
-      <p class="lede">Targets saved from market intelligence. This version is stored locally on this device.</p>
+      <p class="lede">Targets saved from market intelligence. Changes stay available locally and sync to your authenticated D1 workspace.</p>
       <div class="pipelineStats">
         ${stages.map(stage => `<div class="pipelineStat"><span>${esc(stage)}</span><strong>${stageCounts[stage]}</strong></div>`).join("")}
       </div>
@@ -383,7 +390,9 @@ Ricky`;
           <tbody>
             ${entries.map(e => `<tr>
               <td><strong>${esc(e.name)}</strong><br><small>${esc(e.company || "")} · ${esc(e.title || e.role || e.type || "")}</small></td>
-              <td><button class="btn tiny" data-open="${esc(e.marketId)}">${esc(data.markets.find(m=>m.id===e.marketId)?.name || e.marketId)}</button></td>
+              <td>${e.marketId && data.markets.some(m=>m.id===e.marketId)
+                ? `<button class="btn tiny" data-open="${esc(e.marketId)}">${esc(data.markets.find(m=>m.id===e.marketId)?.name || e.marketId)}</button>`
+                : `<span class="status">${esc(e.marketId || "Global")}</span>`}</td>
               <td>
                 <select class="input pipeStatus" data-pipe-key="${esc(e.key)}">
                   ${stages.map(stage => `<option ${stage===e.status?"selected":""}>${stage}</option>`).join("")}
@@ -425,7 +434,7 @@ Ricky`;
     const entries = Object.values(state.pipeline);
     const rows = [["Target","Market","Company","Title/Role","Status","Next follow-up","Notes"], ...entries.map(e => [
       e.name,
-      data.markets.find(m=>m.id===e.marketId)?.name || e.marketId,
+      data.markets.find(m=>m.id===e.marketId)?.name || e.marketId || "Global",
       e.company || e.name,
       e.title || e.role || "",
       e.status,
