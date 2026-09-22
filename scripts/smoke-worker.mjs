@@ -611,6 +611,48 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const unsafePayload = await unsafe.json();
   assert.equal(unsafePayload.error, "source_url_host_not_allowed");
 
+  const preview = await call("/api/source-manager", {
+    env,
+    ctx: authenticatedCtx,
+    method: "POST",
+    body: {
+      action: "bulk_preview",
+      sources: [
+        {
+          marketId: "brazil",
+          label: "Preview valid source",
+          url: "https://preview.example.com/one",
+          type: "market_update",
+          cadenceHours: 72,
+          priority: "medium"
+        },
+        {
+          marketId: "brazil",
+          label: "Preview duplicate source",
+          url: "https://preview.example.com/one",
+          type: "market_update",
+          cadenceHours: 72,
+          priority: "medium"
+        },
+        {
+          marketId: "mexico",
+          label: "Unsafe preview source",
+          url: "https://127.0.0.1/private",
+          type: "billing_route",
+          cadenceHours: 24,
+          priority: "high"
+        }
+      ]
+    }
+  });
+  assert.equal(preview.status, 207);
+  const previewPayload = await preview.json();
+  assert.equal(previewPayload.requested, 3);
+  assert.equal(previewPayload.valid, 1);
+  assert.equal(previewPayload.skipped, 1);
+  assert.equal(previewPayload.errors, 1);
+  assert.equal(db.monitoredSources.length, 1);
+
   const bulk = await call("/api/source-manager", {
     env,
     ctx: authenticatedCtx,
@@ -702,6 +744,79 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   assert.ok(payload.sources.every(source => marketIds.has(source.marketId)));
   assert.ok(payload.sources.every(source => Number.isInteger(source.cadenceHours) && source.cadenceHours > 0));
   assert.ok(payload.sources.every(source => ["high", "medium", "low"].includes(source.priority)));
+}
+
+{
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response("<html><title>Probe OK</title><body>Public monitoring page</body></html>", {
+      status: 200,
+      headers: { "content-type": "text/html" }
+    });
+
+  try {
+    const db = new FakeD1();
+    const env = { ASSETS: assets, RADAR_DB: db };
+    const before = db.monitoredSources.length;
+
+    const probe = await call("/api/source-manager", {
+      env,
+      ctx: authenticatedCtx,
+      method: "POST",
+      body: {
+        action: "probe",
+        marketId: "mexico",
+        label: "Probe source",
+        url: "https://probe.example.com/page",
+        type: "market_update",
+        cadenceHours: 24,
+        priority: "medium"
+      }
+    });
+
+    assert.equal(probe.status, 200);
+    const payload = await probe.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.probe.status, 200);
+    assert.equal(payload.probe.title, "Probe OK");
+    assert.equal(db.monitoredSources.length, before);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+{
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response("<html><title>Just a moment</title><body>Checking your browser</body></html>", {
+      status: 200,
+      headers: { "content-type": "text/html" }
+    });
+
+  try {
+    const db = new FakeD1();
+    const env = { ASSETS: assets, RADAR_DB: db };
+    const probe = await call("/api/source-manager", {
+      env,
+      ctx: authenticatedCtx,
+      method: "POST",
+      body: {
+        action: "probe",
+        marketId: "mexico",
+        label: "Blocked probe",
+        url: "https://blocked.example.com/page",
+        type: "market_update",
+        cadenceHours: 24,
+        priority: "medium"
+      }
+    });
+
+    assert.equal(probe.status, 422);
+    const payload = await probe.json();
+    assert.equal(payload.error, "source_probe_blocked");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 }
 
 {
@@ -869,5 +984,7 @@ console.log("Worker smoke tests passed:", {
   cadenceScheduling: true,
   sourceManager: true,
   sourceContentGuard: true,
-  bulkSourceImport: true
+  bulkSourceImport: true,
+  sourceProbe: true,
+  bulkImportPreview: true
 });
