@@ -1,5 +1,6 @@
 (() => {
   let activeStatus = "pending";
+  let requestSequence = 0;
 
   function esc(value) {
     return String(value ?? "").replace(/[&<>"']/g, c => ({
@@ -157,6 +158,7 @@
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || payload.error || "Review failed");
       await load();
+      window.dispatchEvent(new CustomEvent("radar:discovery-updated", { detail: { id, action } }));
     } catch (error) {
       alert(error.message);
       button.disabled = false;
@@ -165,6 +167,7 @@
   }
 
   async function load() {
+    const sequence = ++requestSequence;
     const root = document.getElementById("discoveryGrid");
     if (root) root.innerHTML = '<div class="empty card">Loading…</div>';
 
@@ -172,8 +175,10 @@
       const response = await fetch("/api/discovery/inbox?status=" + encodeURIComponent(activeStatus), { cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || payload.error || "Discovery Inbox unavailable");
+      if (sequence !== requestSequence) return;
       render(payload);
     } catch (error) {
+      if (sequence !== requestSequence) return;
       if (root) root.innerHTML = '<div class="empty card">' + esc(error.message) + '</div>';
     }
   }
@@ -181,6 +186,7 @@
   function init() {
     installStyles();
     ensureSection();
+    window.addEventListener("radar:source-watch-updated", load);
     load();
   }
 
