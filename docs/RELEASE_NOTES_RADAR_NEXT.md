@@ -69,7 +69,11 @@ Target: `main`
 - Missing pillars become actionable gaps.
 - Gap buttons prefill market, source type, cadence and priority in Source Manager.
 - Coverage updates immediately when a custom source is added or disabled.
-- No opaque score is used: the UI shows the actual source presence behind each pillar.
+- Coverage health states: Healthy / Review / Degraded / Unchecked / Gap.
+- A source that is present but failing checks does not count as healthy operational coverage.
+- New **Attention Queue** surfaces unresolved coverage issues with explicit reasons.
+- Attention ordering is deterministic and explainable: billing first, then market/regulatory, then commercial ecosystem; missing/failed coverage before unchecked coverage.
+- No opaque score is used: the UI shows the actual source presence and health behind each pillar.
 
 ### 7. Source Manager
 - New authenticated Source Manager backed by D1.
