@@ -4,7 +4,8 @@ import fs from "node:fs";
 const workspaceSql = fs.readFileSync("migrations/0001_workspace.sql", "utf8");
 const sourceSql = fs.readFileSync("migrations/0002_source_watch.sql", "utf8");
 const discoverySql = fs.readFileSync("migrations/0003_discovery_inbox.sql", "utf8");
-const combined = workspaceSql + "\n" + sourceSql + "\n" + discoverySql;
+const managedSourcesSql = fs.readFileSync("migrations/0004_monitored_sources.sql", "utf8");
+const combined = workspaceSql + "\n" + sourceSql + "\n" + discoverySql + "\n" + managedSourcesSql;
 
 assert.match(workspaceSql, /CREATE TABLE IF NOT EXISTS workspace_state/i);
 assert.match(workspaceSql, /payload_json TEXT NOT NULL CHECK \(json_valid\(payload_json\)\)/i);
@@ -32,6 +33,13 @@ assert.match(discoverySql, /previously captured bot challenge/i);
 assert.match(discoverySql, /baseline_hash = NULL/i);
 assert.match(discoverySql, /schema_version', '3/i);
 
+assert.match(managedSourcesSql, /CREATE TABLE IF NOT EXISTS monitored_sources/i);
+assert.match(managedSourcesSql, /cadence_hours INTEGER NOT NULL DEFAULT 24/i);
+assert.match(managedSourcesSql, /priority TEXT NOT NULL DEFAULT 'medium'/i);
+assert.match(managedSourcesSql, /enabled INTEGER NOT NULL DEFAULT 1/i);
+assert.match(managedSourcesSql, /UNIQUE/i);
+assert.match(managedSourcesSql, /schema_version', '4/i);
+
 assert.doesNotMatch(combined, /auth\.users/i);
 assert.doesNotMatch(combined, /jsonb/i);
 assert.doesNotMatch(combined, /timestamptz/i);
@@ -46,13 +54,14 @@ assert.equal(wrangler.d1_databases?.[0]?.binding, "RADAR_DB");
 assert.deepEqual(wrangler.triggers?.crons, ["0 6,18 * * *"]);
 
 console.log("D1 migration validation passed:", {
-  schemaVersion: 3,
+  schemaVersion: 4,
   tables: [
     "workspace_state",
     "app_meta",
     "source_watch_state",
     "source_watch_history",
-    "discovery_candidates"
+    "discovery_candidates",
+    "monitored_sources"
   ],
   binding: "RADAR_DB",
   cron: "0 6,18 * * *"
