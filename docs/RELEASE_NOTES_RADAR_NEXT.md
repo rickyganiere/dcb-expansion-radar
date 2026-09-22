@@ -69,10 +69,14 @@ Target: `main`
   - edited
   - enabled
   - disabled
+  - bulk imported from CSV
+  - exported to CSV
 - Disabling a custom source stops future scans without deleting its history.
 - Only public HTTPS URLs are accepted.
 - Direct IPs, localhost/internal hosts, embedded credentials and custom ports are rejected.
 - Supported cadence values: 12h, 24h, 72h and 168h.
+- Bulk import accepts up to 100 rows per request and reports created/skipped/errors.
+- Duplicate URLs are skipped instead of duplicated.
 - Custom sources feed Source Watch and Discovery Inbox but never auto-promote to verified intelligence.
 
 ### 7. D1 schema v4
@@ -110,6 +114,7 @@ CI validates feature branches and covers:
 - rate-limit backoff
 - core-source cadence metadata
 - Source Manager create/update/disable lifecycle
+- bulk CSV source import with duplicate/error reporting
 - protected core source mutation rejection
 - unsafe custom URL rejection
 - unsupported content-type rejection
