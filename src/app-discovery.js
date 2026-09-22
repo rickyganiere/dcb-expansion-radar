@@ -378,6 +378,54 @@ export async function toggleDiscoverySeed(db, id, enabled) {
   return { id, enabled, updatedAt: now };
 }
 
+export async function runDiscoverySeedById(db, id, actor = "manual") {
+  const seedId = String(id || "").trim();
+  if (!seedId) throw new Error("app_seed_not_found");
+
+  const seed = await db.prepare(
+    "SELECT seed_id, store, market_id, query, cadence_hours, enabled, last_checked_at, last_http_status, last_error " +
+    "FROM app_discovery_seeds WHERE seed_id = ?1 LIMIT 1"
+  ).bind(seedId).first();
+
+  if (!seed) throw new Error("app_seed_not_found");
+  return runDiscoverySeed(db, seed, actor);
+}
+
+export async function createPresetPack(db, marketId, actor = null) {
+  const market = String(marketId || "").trim();
+  if (!MARKET_CODES[market]) throw new Error("invalid_app_seed_market");
+
+  const created = [];
+  const skipped = [];
+
+  for (const store of ["apple_app_store", "google_play"]) {
+    for (const query of APP_DISCOVERY_PRESETS) {
+      try {
+        created.push(await createDiscoverySeed(db, {
+          store,
+          marketId: market,
+          query,
+          cadenceHours: query === "dating" || query === "streaming" ? 24 : 72
+        }, actor));
+      } catch (error) {
+        if (String(error?.message || error) === "duplicate_app_seed") {
+          skipped.push({ store, marketId: market, query, reason: "duplicate_app_seed" });
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
+  return {
+    marketId: market,
+    created: created.length,
+    skipped: skipped.length,
+    seeds: created,
+    skippedSeeds: skipped
+  };
+}
+
 export async function runDueDiscoverySeeds(db, actor = "cron", options = {}) {
   const result = await db.prepare(
     "SELECT seed_id, store, market_id, query, cadence_hours, enabled, last_checked_at, last_http_status, last_error " +
