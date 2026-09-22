@@ -59,6 +59,7 @@ jobs:
           test -f migrations/0002_source_watch.sql
           test -f migrations/0003_discovery_inbox.sql
           test -f migrations/0004_monitored_sources.sql
+          test -f migrations/0005_source_entity_tags.sql
           test -f public/automation-health.js
           test -f public/discovery-inbox.js
           test -f public/source-manager.js
