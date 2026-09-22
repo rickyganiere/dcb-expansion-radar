@@ -1,6 +1,7 @@
 import { SOURCE_REGISTRY } from "./source-registry.js";
 import { getVerifiedAccessIdentity, enforcePinnedAudience } from "./access-auth.js";
 import { scanAppListing, persistAppScan, listCommercialEntities, reviewCommercialEntity, PUBLISHER_DISCOVERY_ERRORS } from "./publisher-discovery.js";
+import { listDiscoveryState, createDiscoverySeed, toggleDiscoverySeed, runDiscoverySeedById, createPresetPack, runDueDiscoverySeeds, processDiscoveryQueue, retryDiscoveryListing, APP_DISCOVERY_ERRORS } from "./app-discovery.js";
 
 function json(data, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -1881,6 +1882,114 @@ export default {
       });
     }
 
+    if (url.pathname === "/api/app-discovery" && request.method === "GET") {
+      const gate = await requireWorkspaceContext(request, env, ctx);
+      if (gate.response) return gate.response;
+
+      const schemaVersion = await getSchemaVersion(gate.db);
+      if (schemaVersion < 7) return migrationRequired(schemaVersion, 7);
+
+      return json({
+        ok: true,
+        ...(await listDiscoveryState(gate.db))
+      });
+    }
+
+    if (url.pathname === "/api/app-discovery" && request.method === "POST") {
+      const gate = await requireWorkspaceContext(request, env, ctx);
+      if (gate.response) return gate.response;
+
+      const schemaVersion = await getSchemaVersion(gate.db);
+      if (schemaVersion < 7) return migrationRequired(schemaVersion, 7);
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ ok: false, error: "invalid_json" }, { status: 400 });
+      }
+
+      const action = String(body?.action || "").trim();
+
+      try {
+        if (action === "create_seed") {
+          return json({
+            ok: true,
+            action,
+            seed: await createDiscoverySeed(gate.db, body, gate.identity.email)
+          }, { status: 201 });
+        }
+
+        if (action === "toggle_seed") {
+          if (typeof body?.enabled !== "boolean") {
+            return json({ ok: false, error: "invalid_enabled_value" }, { status: 400 });
+          }
+          return json({
+            ok: true,
+            action,
+            seed: await toggleDiscoverySeed(gate.db, body?.id, body.enabled)
+          });
+        }
+
+        if (action === "run_seed") {
+          return json({
+            ok: true,
+            action,
+            result: await runDiscoverySeedById(gate.db, body?.id, gate.identity.email)
+          });
+        }
+
+        if (action === "preset_pack") {
+          return json({
+            ok: true,
+            action,
+            result: await createPresetPack(gate.db, body?.marketId, gate.identity.email)
+          });
+        }
+
+        if (action === "run_due") {
+          return json({
+            ok: true,
+            action,
+            result: await runDueDiscoverySeeds(gate.db, gate.identity.email, {
+              forceAll: Boolean(body?.forceAll),
+              maxSeeds: Math.max(1, Math.min(Number(body?.maxSeeds || 6), 20))
+            })
+          });
+        }
+
+        if (action === "process_queue") {
+          return json({
+            ok: true,
+            action,
+            result: await processDiscoveryQueue(gate.db, gate.identity.email, {
+              limit: Math.max(1, Math.min(Number(body?.limit || 5), 20))
+            })
+          });
+        }
+
+        if (action === "retry_listing") {
+          return json({
+            ok: true,
+            action,
+            result: await retryDiscoveryListing(gate.db, body?.listingUrl)
+          });
+        }
+
+        return json({ ok: false, error: "unsupported_app_discovery_action" }, { status: 400 });
+      } catch (error) {
+        const code = String(error?.message || error || "app_discovery_failed");
+        return json({
+          ok: false,
+          error: APP_DISCOVERY_ERRORS.has(code) ? code : "app_discovery_failed",
+          detail: APP_DISCOVERY_ERRORS.has(code) ? undefined : code
+        }, {
+          status: ["app_seed_not_found", "app_listing_not_found"].includes(code) ? 404 :
+            code === "duplicate_app_seed" ? 409 : 400
+        });
+      }
+    }
+
     if (url.pathname === "/api/publisher-discovery" && request.method === "GET") {
       const gate = await requireWorkspaceContext(request, env, ctx);
       if (gate.response) return gate.response;
@@ -2094,7 +2203,9 @@ export default {
           "discovery-inbox",
           "source-coverage",
           "publisher-discovery",
-          "app-store-publisher-scan"
+          "app-store-publisher-scan",
+          "app-store-seed-discovery",
+          "publisher-discovery-queue"
         ],
         nextBackendStep: !env.RADAR_DB
           ? "bind-d1-database"
@@ -2113,6 +2224,15 @@ export default {
 
   async scheduled(_controller, env, ctx) {
     if (!env.RADAR_DB) return;
+
     ctx.waitUntil(runAllSourceChecks(env, "cron", { respectCadence: true }));
+
+    ctx.waitUntil((async () => {
+      const schemaVersion = await getSchemaVersion(env.RADAR_DB);
+      if (schemaVersion < 7) return;
+
+      await runDueDiscoverySeeds(env.RADAR_DB, "cron", { maxSeeds: 4 });
+      await processDiscoveryQueue(env.RADAR_DB, "cron", { limit: 5 });
+    })());
   }
 };
