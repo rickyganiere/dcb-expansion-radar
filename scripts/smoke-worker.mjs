@@ -64,6 +64,11 @@ class FakeStatement {
       return { value: this.db.appMeta.last_source_watch_summary || null };
     }
 
+    if (this.sql.includes("FROM monitored_sources") && this.sql.includes("WHERE source_id = ?1")) {
+      const row = this.db.monitoredSources.find(source => source.source_id === this.args[0]);
+      return row ? { ...row } : null;
+    }
+
     if (this.sql.includes("COUNT(*) AS pending FROM discovery_candidates")) {
       return { pending: this.db.candidates.filter(x => x.status === "pending").length };
     }
@@ -80,8 +85,10 @@ class FakeStatement {
   }
 
   async all() {
-    if (this.sql.includes("SELECT source_id, checked_at, last_http_status, last_error") &&
-        this.sql.includes("FROM source_watch_state")) {
+    if (this.sql.includes("FROM source_watch_state") &&
+        this.sql.includes("source_id") &&
+        this.sql.includes("last_http_status") &&
+        !this.sql.includes("ORDER BY changed DESC")) {
       return { success: true, results: [...this.db.sourceStates] };
     }
 
@@ -91,6 +98,14 @@ class FakeStatement {
 
     if (this.sql.includes("FROM source_watch_history")) {
       return { success: true, results: [] };
+    }
+
+    if (this.sql.includes("FROM monitored_sources")) {
+      let rows = [...this.db.monitoredSources];
+      if (this.sql.includes("WHERE enabled = 1")) {
+        rows = rows.filter(row => Number(row.enabled) === 1);
+      }
+      return { success: true, results: rows };
     }
 
     if (this.sql.includes("FROM discovery_candidates")) {
@@ -140,6 +155,70 @@ class FakeStatement {
       }
     }
 
+    if (this.sql.startsWith("INSERT INTO monitored_sources")) {
+      const [
+        source_id,
+        market_id,
+        label,
+        url,
+        source_type,
+        cadence_hours,
+        priority,
+        created_by,
+        created_at
+      ] = this.args;
+
+      if (this.db.monitoredSources.some(source => source.url === url)) {
+        throw new Error("UNIQUE constraint failed: monitored_sources.url");
+      }
+
+      this.db.monitoredSources.push({
+        source_id,
+        market_id,
+        label,
+        url,
+        source_type,
+        cadence_hours,
+        priority,
+        enabled: 1,
+        origin: "manual",
+        created_by,
+        created_at,
+        updated_at: created_at
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (this.sql.startsWith("UPDATE monitored_sources")) {
+      const source_id = this.args[this.args.length - 1];
+      const source = this.db.monitoredSources.find(row => row.source_id === source_id);
+      if (!source) return { success: true, meta: { changes: 0 } };
+
+      if (this.sql.includes("SET enabled = ?1")) {
+        source.enabled = this.args[0];
+        source.updated_at = this.args[1];
+        return { success: true, meta: { changes: 1 } };
+      }
+
+      const [
+        market_id,
+        label,
+        url,
+        source_type,
+        cadence_hours,
+        priority,
+        updated_at
+      ] = this.args;
+      source.market_id = market_id;
+      source.label = label;
+      source.url = url;
+      source.source_type = source_type;
+      source.cadence_hours = cadence_hours;
+      source.priority = priority;
+      source.updated_at = updated_at;
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (this.sql.startsWith("UPDATE discovery_candidates")) {
       const [status, reviewedAt, reviewedBy, reviewNote, id] = this.args;
       const candidate = this.db.candidates.find(x => x.id === id);
@@ -160,7 +239,7 @@ class FakeD1 {
   constructor() {
     this.row = null;
     this.appMeta = {
-      schema_version: "3",
+      schema_version: "4",
       last_source_watch_run: "2026-09-21T23:04:18.973Z",
       last_source_watch_summary: JSON.stringify({
         ok: true,
@@ -174,10 +253,16 @@ class FakeD1 {
     };
     this.sourceStates = Object.keys(SOURCE_REGISTRY).map(source_id => ({
       source_id,
+      baseline_hash: "baseline-" + source_id,
+      last_hash: "baseline-" + source_id,
+      changed: 0,
       checked_at: new Date().toISOString(),
       last_http_status: 200,
+      last_duration_ms: 100,
+      last_title: "Stable source",
       last_error: null
     }));
+    this.monitoredSources = [];
     this.candidates = [{
       id: 1,
       source_id: "mx-google-play",
@@ -390,7 +475,7 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const health = await call("/api/automation/health", { env, ctx: authenticatedCtx });
   assert.equal(health.status, 200);
   const healthPayload = await health.json();
-  assert.equal(healthPayload.schemaVersion, 3);
+  assert.equal(healthPayload.schemaVersion, 4);
   assert.equal(healthPayload.sources.total, 14);
   assert.equal(healthPayload.sources.rateLimited, 1);
   assert.equal(healthPayload.sources.blocked, 1);
@@ -431,6 +516,105 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   assert.equal(reopen.status, 200);
   const reopenPayload = await reopen.json();
   assert.equal(reopenPayload.status, "pending");
+}
+
+{
+  const db = new FakeD1();
+  const env = { ASSETS: assets, RADAR_DB: db };
+
+  const initial = await call("/api/source-manager", { env, ctx: authenticatedCtx });
+  assert.equal(initial.status, 200);
+  const initialPayload = await initial.json();
+  assert.equal(initialPayload.counts.core, Object.keys(SOURCE_REGISTRY).length);
+  assert.equal(initialPayload.counts.custom, 0);
+
+  const create = await call("/api/source-manager", {
+    env,
+    ctx: authenticatedCtx,
+    method: "POST",
+    body: {
+      action: "create",
+      marketId: "mexico",
+      label: "Example operator billing page",
+      url: "https://example.com/billing",
+      type: "billing_route",
+      cadenceHours: 24,
+      priority: "high"
+    }
+  });
+  assert.equal(create.status, 201);
+  const createPayload = await create.json();
+  assert.equal(createPayload.source.origin, "manual");
+  assert.equal(createPayload.source.enabled, true);
+  const customId = createPayload.source.id;
+
+  const activeSources = await call("/api/sources", { env, ctx: authenticatedCtx });
+  const activePayload = await activeSources.json();
+  assert.equal(activePayload.sources.length, Object.keys(SOURCE_REGISTRY).length + 1);
+  assert.ok(activePayload.sources.some(source => source.id === customId));
+
+  const update = await call("/api/source-manager", {
+    env,
+    ctx: authenticatedCtx,
+    method: "POST",
+    body: {
+      action: "update",
+      id: customId,
+      label: "Updated operator billing page",
+      cadenceHours: 72,
+      priority: "medium"
+    }
+  });
+  assert.equal(update.status, 200);
+  const updatePayload = await update.json();
+  assert.equal(updatePayload.source.label, "Updated operator billing page");
+  assert.equal(updatePayload.source.cadenceHours, 72);
+
+  const disable = await call("/api/source-manager", {
+    env,
+    ctx: authenticatedCtx,
+    method: "POST",
+    body: { action: "toggle", id: customId, enabled: false }
+  });
+  assert.equal(disable.status, 200);
+
+  const activeAfterDisable = await call("/api/sources", { env, ctx: authenticatedCtx });
+  const activeAfterPayload = await activeAfterDisable.json();
+  assert.equal(activeAfterPayload.sources.length, Object.keys(SOURCE_REGISTRY).length);
+  assert.ok(!activeAfterPayload.sources.some(source => source.id === customId));
+
+  const managerAfterDisable = await call("/api/source-manager", { env, ctx: authenticatedCtx });
+  const managerAfterPayload = await managerAfterDisable.json();
+  assert.equal(managerAfterPayload.counts.custom, 1);
+  assert.equal(managerAfterPayload.counts.disabled, 1);
+
+  const unsafe = await call("/api/source-manager", {
+    env,
+    ctx: authenticatedCtx,
+    method: "POST",
+    body: {
+      action: "create",
+      marketId: "mexico",
+      label: "Unsafe local source",
+      url: "https://127.0.0.1/private",
+      type: "market_update",
+      cadenceHours: 24,
+      priority: "medium"
+    }
+  });
+  assert.equal(unsafe.status, 400);
+  const unsafePayload = await unsafe.json();
+  assert.equal(unsafePayload.error, "source_url_host_not_allowed");
+
+  const editCore = await call("/api/source-manager", {
+    env,
+    ctx: authenticatedCtx,
+    method: "POST",
+    body: { action: "toggle", id: "mx-google-play", enabled: false }
+  });
+  assert.equal(editCore.status, 400);
+  const editCorePayload = await editCore.json();
+  assert.equal(editCorePayload.error, "core_source_not_editable");
 }
 
 {
@@ -564,5 +748,6 @@ console.log("Worker smoke tests passed:", {
   rateLimitRetry: true,
   botChallengeDetection: true,
   protectedSourceWatchReads: true,
-  cadenceScheduling: true
+  cadenceScheduling: true,
+  sourceManager: true
 });
