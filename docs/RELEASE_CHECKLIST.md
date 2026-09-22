@@ -3,84 +3,41 @@
 Production branch: `main`  
 Staging branch: `feature/radar-next`
 
-Do not merge the feature branch before the D1 migration is applied.
+Do not merge the feature branch before both pending D1 migrations are applied.
 
 ## 1. Validate the feature branch
 
 Required:
 - GitHub Actions validation passes.
 - JavaScript syntax checks pass.
-- D1 schema validation reports version 3.
+- D1 schema validation reports version 4.
 - Worker smoke tests pass.
 - Required static assets are present.
 - No Supabase references remain in active code.
 
-## 2. Apply the backwards-compatible D1 migration
+## 2. Apply migration 0003
 
-Apply only the new migration before merging:
+Open production D1 and execute the exact contents of:
 
-```sql
--- DCB Expansion Radar · Discovery Inbox
--- Migration 0003
--- Source changes become reviewable research candidates, never verified intelligence automatically.
-
-PRAGMA foreign_keys = ON;
-
-CREATE TABLE IF NOT EXISTS discovery_candidates (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_id TEXT NOT NULL,
-  market_id TEXT NOT NULL,
-  candidate_type TEXT NOT NULL DEFAULT 'source_change',
-  content_hash TEXT NOT NULL,
-  title TEXT,
-  summary TEXT,
-  source_url TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending','accepted','dismissed')),
-  detected_at TEXT NOT NULL,
-  reviewed_at TEXT,
-  reviewed_by TEXT,
-  review_note TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  UNIQUE(source_id, content_hash),
-  FOREIGN KEY (source_id) REFERENCES source_watch_state(source_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS discovery_candidates_status_detected_idx
-  ON discovery_candidates(status, detected_at DESC);
-
-CREATE INDEX IF NOT EXISTS discovery_candidates_market_status_idx
-  ON discovery_candidates(market_id, status, detected_at DESC);
-
--- Reset legacy baselines that were accidentally captured from anti-bot challenge pages.
--- The next successful source check will establish a clean baseline.
-UPDATE source_watch_state
-SET baseline_hash = NULL,
-    last_hash = NULL,
-    changed = 0,
-    last_error = 'Baseline reset: previously captured bot challenge',
-    reviewed_at = NULL,
-    reviewed_by = NULL,
-    review_note = NULL,
-    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-WHERE lower(COALESCE(last_title, '')) LIKE '%challenge validation%'
-   OR lower(COALESCE(last_title, '')) LIKE '%just a moment%'
-   OR lower(COALESCE(last_title, '')) LIKE '%verify you are human%'
-   OR lower(COALESCE(last_title, '')) LIKE '%checking your browser%'
-   OR lower(COALESCE(last_title, '')) LIKE '%attention required%'
-   OR lower(COALESCE(last_title, '')) LIKE '%security check%'
-   OR lower(COALESCE(last_title, '')) LIKE '%robot check%'
-   OR lower(COALESCE(last_title, '')) LIKE '%access denied%';
-
-INSERT INTO app_meta (key, value)
-VALUES ('schema_version', '3')
-ON CONFLICT(key) DO UPDATE SET
-  value = excluded.value,
-  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now');
+```text
+migrations/0003_discovery_inbox.sql
 ```
 
-Verify:
+This creates `discovery_candidates`, resets known challenge-page baselines and advances the schema to version 3.
+
+## 3. Apply migration 0004
+
+Then execute the exact contents of:
+
+```text
+migrations/0004_monitored_sources.sql
+```
+
+This creates `monitored_sources` and advances the schema to version 4.
+
+## 4. Verify schema
+
+Run:
 
 ```sql
 SELECT key, value
@@ -91,38 +48,86 @@ WHERE key = 'schema_version';
 Expected:
 
 ```text
-schema_version | 3
+schema_version | 4
 ```
 
-## 3. Merge once
+Also verify the new tables exist:
 
-Merge `feature/radar-next` into `main` only after step 2 succeeds.
+```sql
+SELECT name
+FROM sqlite_master
+WHERE type = 'table'
+  AND name IN ('discovery_candidates','monitored_sources')
+ORDER BY name;
+```
+
+Expected:
+- `discovery_candidates`
+- `monitored_sources`
+
+## 5. Merge once
+
+Merge `feature/radar-next` into `main` only after schema version 4 is confirmed.
 
 This single merge is the production release trigger.
 
-## 4. Post-deploy checks
+## 6. Post-deploy checks
 
 Open the production Radar and verify:
 - Cloudflare Access login still works.
-- API badge shows `API + D1 online`.
+- API badge shows `API + D1 v4 online`.
 - Automation Health loads.
 - Source Watch loads central authenticated state.
 - Discovery Inbox loads without database errors.
-- Workspace D1 sync shows authenticated user.
+- Manage Sources opens.
+- Workspace D1 sync shows the authenticated user.
 - Pipeline/shortlist changes persist after refresh.
 
-## 5. Manual Source Watch test
+## 7. Source Manager test
 
-Run `Check all sources`.
+Open **Manage sources**.
+
+Create one temporary public HTTPS source with:
+- valid market
+- valid source type
+- cadence
+- priority
+
+Verify:
+- it appears as custom and enabled;
+- it appears in Source Watch;
+- changing cadence updates immediately;
+- disabling it removes it from active Source Watch;
+- it remains listed in Source Manager as disabled;
+- core sources do not expose destructive edit controls.
+
+The temporary source can remain disabled after the test so history is preserved.
+
+## 8. Manual Source Watch test
+
+Run **Check all sources**.
 
 Expected behavior:
 - successful sources show `No change` unless fingerprint changed;
 - HTTP 429 shows `Rate limited`;
 - HTTP 5xx shows `Check failed`;
+- bot challenge HTML shows `Bot challenge`;
 - changed fingerprints create Discovery Inbox candidates;
 - repeated checks with the same changed hash do not duplicate candidates.
 
-## 6. Database verification
+## 9. Cadence verification
+
+Automation Health should show **Due now**.
+
+A scheduled run should:
+- attempt only due sources;
+- write `skippedByCadence` in the run summary;
+- respect at least 24h backoff after 429;
+- respect at least 72h backoff after bot challenge.
+
+Manual **Check all sources** intentionally ignores cadence.
+
+## 10. Database verification
 
 Check:
 
@@ -144,13 +149,23 @@ FROM discovery_candidates
 GROUP BY status;
 ```
 
-## 7. Release complete
+And:
+
+```sql
+SELECT enabled, COUNT(*) AS count
+FROM monitored_sources
+GROUP BY enabled;
+```
+
+## 11. Release complete
 
 Only mark the release complete when:
 - branch CI is green;
-- schema version is 3;
+- schema version is 4;
 - production deployment is healthy;
 - D1 workspace persistence works;
 - Source Watch works;
+- cadence scheduling works;
 - Discovery Inbox works;
+- Source Manager works;
 - no unexpected 5xx errors appear in the UI.
