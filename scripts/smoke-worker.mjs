@@ -533,6 +533,11 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   assert.equal(payload.summary.markets, marketIds.size);
   assert.equal(payload.summary.activeSources, Object.keys(SOURCE_REGISTRY).length);
   assert.ok(payload.summary.gaps > 0);
+  assert.equal(payload.summary.attention, payload.attentionQueue.length);
+  assert.ok(payload.attentionQueue.length > 0);
+  assert.ok(payload.attentionQueue.every(item => item.reason && item.suggestedType));
+  const firstAttention = payload.attentionQueue[0];
+  assert.ok(["critical","high","medium"].includes(firstAttention.urgency));
 
   const mexico = payload.markets.find(market => market.marketId === "mexico");
   assert.ok(mexico);
@@ -549,6 +554,20 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const degradedMexico = degradedPayload.markets.find(market => market.marketId === "mexico");
   assert.equal(degradedMexico.pillars.find(pillar => pillar.id === "billing").status, "degraded");
   assert.ok(degradedPayload.summary.atRisk >= 1);
+  const degradedBillingAttention = degradedPayload.attentionQueue.find(item =>
+    item.marketId === "mexico" && item.pillarId === "billing"
+  );
+  assert.ok(degradedBillingAttention);
+  assert.equal(degradedBillingAttention.urgency, "critical");
+  const mexicoEcosystemAttention = degradedPayload.attentionQueue.findIndex(item =>
+    item.marketId === "mexico" && item.pillarId === "ecosystem"
+  );
+  const mexicoBillingAttention = degradedPayload.attentionQueue.findIndex(item =>
+    item.marketId === "mexico" && item.pillarId === "billing"
+  );
+  assert.ok(mexicoBillingAttention >= 0);
+  assert.ok(mexicoEcosystemAttention >= 0);
+  assert.ok(mexicoBillingAttention < mexicoEcosystemAttention);
 
   const create = await call("/api/source-manager", {
     env,
@@ -1062,5 +1081,6 @@ console.log("Worker smoke tests passed:", {
   sourceProbe: true,
   bulkImportPreview: true,
   sourceCoverage: true,
-  coverageHealthStates: true
+  coverageHealthStates: true,
+  coverageAttentionQueue: true
 });
