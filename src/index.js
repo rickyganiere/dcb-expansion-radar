@@ -163,6 +163,138 @@ function migrationRequired(version, required = 3) {
   }, { status: 503 });
 }
 
+const ALLOWED_SOURCE_MARKETS = new Set(
+  Object.values(SOURCE_REGISTRY).map(entry => entry.marketId)
+);
+const ALLOWED_SOURCE_TYPES = new Set([
+  "billing_route",
+  "market_update",
+  "corporate_change",
+  "partner_update",
+  "operator_update"
+]);
+const ALLOWED_SOURCE_CADENCES = new Set([12, 24, 72, 168]);
+const ALLOWED_SOURCE_PRIORITIES = new Set(["high", "medium", "low"]);
+
+function coreSourceCatalog() {
+  return Object.fromEntries(
+    Object.entries(SOURCE_REGISTRY).map(([id, entry]) => [id, {
+      ...entry,
+      id,
+      enabled: true,
+      origin: "core",
+      editable: false,
+      createdBy: null,
+      createdAt: null,
+      updatedAt: null
+    }])
+  );
+}
+
+function managedSourceRowToEntry(row) {
+  return {
+    id: row.source_id,
+    marketId: row.market_id,
+    label: row.label,
+    url: row.url,
+    type: row.source_type,
+    cadenceHours: Number(row.cadence_hours || 24),
+    priority: row.priority || "medium",
+    enabled: Number(row.enabled) === 1,
+    origin: row.origin || "manual",
+    editable: true,
+    createdBy: row.created_by || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null
+  };
+}
+
+async function loadSourceCatalog(db, { includeDisabled = false } = {}) {
+  const catalog = coreSourceCatalog();
+  if (!db || await getSchemaVersion(db) < 4) return catalog;
+
+  const sql = `SELECT
+      source_id, market_id, label, url, source_type,
+      cadence_hours, priority, enabled, origin,
+      created_by, created_at, updated_at
+    FROM monitored_sources
+    ${includeDisabled ? "" : "WHERE enabled = 1"}
+    ORDER BY created_at ASC, source_id ASC`;
+
+  const result = await db.prepare(sql).all();
+  for (const row of result?.results || []) {
+    if (catalog[row.source_id]) continue;
+    catalog[row.source_id] = managedSourceRowToEntry(row);
+  }
+
+  return catalog;
+}
+
+async function findSourceEntry(id, db, options = {}) {
+  const catalog = await loadSourceCatalog(db, options);
+  return catalog[id] || null;
+}
+
+function normalizeManagedSourceUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw.length > 2048) throw new Error("invalid_source_url");
+
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("invalid_source_url");
+  }
+
+  if (parsed.protocol !== "https:") throw new Error("source_url_must_use_https");
+  if (parsed.username || parsed.password) throw new Error("source_url_credentials_not_allowed");
+  if (parsed.port && parsed.port !== "443") throw new Error("source_url_custom_port_not_allowed");
+
+  const host = parsed.hostname.toLowerCase();
+  const blockedSuffixes = [".local", ".internal", ".lan", ".localhost"];
+  const looksLikeIpv4 = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host);
+  const looksLikeIpv6 = host.includes(":");
+
+  if (
+    !host.includes(".") ||
+    host === "localhost" ||
+    looksLikeIpv4 ||
+    looksLikeIpv6 ||
+    blockedSuffixes.some(suffix => host.endsWith(suffix))
+  ) {
+    throw new Error("source_url_host_not_allowed");
+  }
+
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function normalizeManagedSourceInput(input, existing = {}) {
+  const marketId = String(input?.marketId ?? existing.marketId ?? "").trim();
+  const label = String(input?.label ?? existing.label ?? "").trim();
+  const type = String(input?.type ?? existing.type ?? "").trim();
+  const cadenceHours = Number(input?.cadenceHours ?? existing.cadenceHours ?? 24);
+  const priority = String(input?.priority ?? existing.priority ?? "medium").trim().toLowerCase();
+  const url = normalizeManagedSourceUrl(input?.url ?? existing.url ?? "");
+
+  if (!ALLOWED_SOURCE_MARKETS.has(marketId)) throw new Error("invalid_source_market");
+  if (label.length < 3 || label.length > 160) throw new Error("invalid_source_label");
+  if (!ALLOWED_SOURCE_TYPES.has(type)) throw new Error("invalid_source_type");
+  if (!ALLOWED_SOURCE_CADENCES.has(cadenceHours)) throw new Error("invalid_source_cadence");
+  if (!ALLOWED_SOURCE_PRIORITIES.has(priority)) throw new Error("invalid_source_priority");
+
+  return { marketId, label, url, type, cadenceHours, priority };
+}
+
+function sourceErrorResponse(error, fallbackStatus = 400) {
+  const code = String(error?.message || error || "invalid_source");
+  const conflict = /unique constraint/i.test(code) || code === "duplicate_source_url";
+  return json({
+    ok: false,
+    error: conflict ? "duplicate_source_url" : code
+  }, { status: conflict ? 409 : fallbackStatus });
+}
+
 function cleanStringArray(value, maxItems = 100) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.map(v => String(v || "").trim()).filter(Boolean))].slice(0, maxItems);
@@ -770,6 +902,187 @@ async function automationHealth(request, env, ctx) {
       pending: Number(discoveryRow?.pending || 0)
     }
   });
+}
+
+async function sourceManager(request, env, ctx) {
+  const gate = await requireWorkspaceContext(request, env, ctx);
+  if (gate.response) return gate.response;
+
+  const schemaVersion = await getSchemaVersion(gate.db);
+  if (schemaVersion < 4) return migrationRequired(schemaVersion, 4);
+
+  if (request.method === "GET") {
+    const catalog = await loadSourceCatalog(gate.db, { includeDisabled: true });
+    const sources = Object.values(catalog).sort((a, b) => {
+      if (a.origin !== b.origin) return a.origin === "core" ? -1 : 1;
+      return String(a.label).localeCompare(String(b.label));
+    });
+
+    return json({
+      ok: true,
+      counts: {
+        total: sources.length,
+        core: sources.filter(source => source.origin === "core").length,
+        custom: sources.filter(source => source.origin !== "core").length,
+        enabled: sources.filter(source => source.enabled).length,
+        disabled: sources.filter(source => !source.enabled).length
+      },
+      sources
+    });
+  }
+
+  if (request.method !== "POST") {
+    return json({ ok: false, error: "method_not_allowed" }, { status: 405 });
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ ok: false, error: "invalid_json" }, { status: 400 });
+  }
+
+  const action = String(body?.action || "");
+
+  if (action === "create") {
+    let source;
+    try {
+      source = normalizeManagedSourceInput(body);
+    } catch (error) {
+      return sourceErrorResponse(error);
+    }
+
+    const coreDuplicate = Object.values(SOURCE_REGISTRY).some(entry => entry.url === source.url);
+    if (coreDuplicate) return sourceErrorResponse(new Error("duplicate_source_url"), 409);
+
+    const id = "custom-" + crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    try {
+      await gate.db.prepare(`INSERT INTO monitored_sources (
+          source_id, market_id, label, url, source_type,
+          cadence_hours, priority, enabled, origin,
+          created_by, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'manual', ?8, ?9, ?9)`)
+        .bind(
+          id,
+          source.marketId,
+          source.label,
+          source.url,
+          source.type,
+          source.cadenceHours,
+          source.priority,
+          gate.identity.email,
+          now
+        )
+        .run();
+    } catch (error) {
+      return sourceErrorResponse(error, 409);
+    }
+
+    return json({
+      ok: true,
+      action,
+      source: {
+        id,
+        ...source,
+        enabled: true,
+        origin: "manual",
+        editable: true,
+        createdBy: gate.identity.email,
+        createdAt: now,
+        updatedAt: now
+      }
+    }, { status: 201 });
+  }
+
+  const id = String(body?.id || "");
+  if (!id || SOURCE_REGISTRY[id]) {
+    return json({ ok: false, error: "core_source_not_editable" }, { status: 400 });
+  }
+
+  const row = await gate.db.prepare(`SELECT
+      source_id, market_id, label, url, source_type,
+      cadence_hours, priority, enabled, origin,
+      created_by, created_at, updated_at
+    FROM monitored_sources
+    WHERE source_id = ?1
+    LIMIT 1`)
+    .bind(id)
+    .first();
+
+  if (!row) return json({ ok: false, error: "source_not_found" }, { status: 404 });
+
+  if (action === "toggle") {
+    if (typeof body.enabled !== "boolean") {
+      return json({ ok: false, error: "invalid_enabled_value" }, { status: 400 });
+    }
+
+    const now = new Date().toISOString();
+    await gate.db.prepare(`UPDATE monitored_sources
+      SET enabled = ?1, updated_at = ?2
+      WHERE source_id = ?3`)
+      .bind(body.enabled ? 1 : 0, now, id)
+      .run();
+
+    return json({ ok: true, action, id, enabled: body.enabled, updatedAt: now });
+  }
+
+  if (action === "update") {
+    const existing = managedSourceRowToEntry(row);
+    let source;
+    try {
+      source = normalizeManagedSourceInput(body, existing);
+    } catch (error) {
+      return sourceErrorResponse(error);
+    }
+
+    const coreDuplicate = Object.values(SOURCE_REGISTRY).some(entry => entry.url === source.url);
+    if (coreDuplicate) return sourceErrorResponse(new Error("duplicate_source_url"), 409);
+
+    const now = new Date().toISOString();
+    try {
+      await gate.db.prepare(`UPDATE monitored_sources
+        SET market_id = ?1,
+            label = ?2,
+            url = ?3,
+            source_type = ?4,
+            cadence_hours = ?5,
+            priority = ?6,
+            updated_at = ?7
+        WHERE source_id = ?8`)
+        .bind(
+          source.marketId,
+          source.label,
+          source.url,
+          source.type,
+          source.cadenceHours,
+          source.priority,
+          now,
+          id
+        )
+        .run();
+    } catch (error) {
+      return sourceErrorResponse(error, 409);
+    }
+
+    return json({
+      ok: true,
+      action,
+      source: {
+        id,
+        ...source,
+        enabled: Number(row.enabled) === 1,
+        origin: row.origin || "manual",
+        editable: true,
+        createdBy: row.created_by || null,
+        createdAt: row.created_at || null,
+        updatedAt: now
+      }
+    });
+  }
+
+  return json({ ok: false, error: "unsupported_source_action" }, { status: 400 });
 }
 
 async function discoveryInbox(request, env, ctx, url) {
