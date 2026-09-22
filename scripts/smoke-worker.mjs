@@ -527,6 +527,47 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const db = new FakeD1();
   const env = { ASSETS: assets, RADAR_DB: db };
 
+  const coverage = await call("/api/source-coverage", { env, ctx: authenticatedCtx });
+  assert.equal(coverage.status, 200);
+  const payload = await coverage.json();
+  assert.equal(payload.summary.markets, marketIds.size);
+  assert.equal(payload.summary.activeSources, Object.keys(SOURCE_REGISTRY).length);
+  assert.ok(payload.summary.gaps > 0);
+
+  const mexico = payload.markets.find(market => market.marketId === "mexico");
+  assert.ok(mexico);
+  assert.equal(mexico.pillars.find(pillar => pillar.id === "billing").covered, true);
+  assert.equal(mexico.pillars.find(pillar => pillar.id === "market").covered, true);
+  assert.equal(mexico.pillars.find(pillar => pillar.id === "ecosystem").covered, false);
+
+  const create = await call("/api/source-manager", {
+    env,
+    ctx: authenticatedCtx,
+    method: "POST",
+    body: {
+      action: "create",
+      marketId: "mexico",
+      label: "Mexico operator commercial updates",
+      url: "https://operator.example.com/mexico/updates",
+      type: "operator_update",
+      cadenceHours: 72,
+      priority: "medium"
+    }
+  });
+  assert.equal(create.status, 201);
+
+  const after = await call("/api/source-coverage", { env, ctx: authenticatedCtx });
+  const afterPayload = await after.json();
+  const mexicoAfter = afterPayload.markets.find(market => market.marketId === "mexico");
+  assert.equal(mexicoAfter.pillars.find(pillar => pillar.id === "ecosystem").covered, true);
+  assert.equal(mexicoAfter.coveredPillars, mexico.coveredPillars + 1);
+  assert.equal(afterPayload.summary.gaps, payload.summary.gaps - 1);
+}
+
+{
+  const db = new FakeD1();
+  const env = { ASSETS: assets, RADAR_DB: db };
+
   const initial = await call("/api/source-manager", { env, ctx: authenticatedCtx });
   assert.equal(initial.status, 200);
   const initialPayload = await initial.json();
@@ -986,5 +1027,6 @@ console.log("Worker smoke tests passed:", {
   sourceContentGuard: true,
   bulkSourceImport: true,
   sourceProbe: true,
-  bulkImportPreview: true
+  bulkImportPreview: true,
+  sourceCoverage: true
 });
