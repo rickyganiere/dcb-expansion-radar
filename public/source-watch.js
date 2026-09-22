@@ -446,6 +446,7 @@
   function init() {
     installStyles();
     installSection();
+    window.addEventListener("radar:sources-updated", loadSources);
     loadSources();
   }
 
