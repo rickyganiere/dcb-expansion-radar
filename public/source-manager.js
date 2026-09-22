@@ -181,6 +181,7 @@
         ).join("") +
       '</select></label>' +
       '<div class="sourceManagerFormActions">' +
+        '<button class="btn ghost" id="probeManagedSource" type="button">Test source</button>' +
         '<button class="btn primary" id="saveManagedSource" type="button">' + (source ? "Save source" : "Add source") + '</button>' +
         (source ? '<button class="btn ghost" id="cancelSourceEdit" type="button">Cancel edit</button>' : '') +
       '</div>' +
@@ -234,6 +235,7 @@
         '<p class="sourceManagerHint">CSV columns: marketId,label,url,type,cadenceHours,priority. Up to 100 rows per import.</p>' +
         '<textarea class="input" id="bulkSourceText" placeholder="marketId,label,url,type,cadenceHours,priority\nmexico,Operator billing,https://example.com/billing,billing_route,24,high"></textarea>' +
         '<div class="sourceManagerBulkActions">' +
+          '<button class="btn ghost" id="previewBulkSources" type="button">Preview import</button>' +
           '<button class="btn primary" id="importBulkSources" type="button">Import CSV</button>' +
           '<button class="btn ghost" id="exportSourcesCsv" type="button">Export CSV</button>' +
           '<button class="btn ghost" id="downloadBulkTemplate" type="button">CSV template</button>' +
@@ -243,7 +245,9 @@
       '<div class="sourceManagerList">' + cachedSources.map(sourceRow).join("") + '</div>';
 
     document.getElementById("closeSourceManager").onclick = () => ensureDialog().close();
+    document.getElementById("probeManagedSource").onclick = probeSource;
     document.getElementById("saveManagedSource").onclick = save;
+    document.getElementById("previewBulkSources").onclick = previewBulk;
     document.getElementById("importBulkSources").onclick = importBulk;
     document.getElementById("exportSourcesCsv").onclick = exportCsv;
     document.getElementById("downloadBulkTemplate").onclick = downloadTemplate;
@@ -303,8 +307,82 @@
       invalid_source_type: "Choose a valid source type.",
       invalid_source_cadence: "Choose a supported monitoring cadence.",
       invalid_source_priority: "Choose a valid priority.",
-      migration_required: "The Source Manager database migration has not been applied yet."
+      migration_required: "The Source Manager database migration has not been applied yet.",
+      source_probe_failed: "The source could not be monitored successfully.",
+      source_probe_blocked: "The source returned a bot/security challenge.",
+      bulk_sources_required: "Add at least one CSV row.",
+      bulk_source_limit: "Maximum 100 rows per import."
     })[error.code] || error.message;
+  }
+
+  async function probeSource() {
+    const button = document.getElementById("probeManagedSource");
+    const errorBox = document.getElementById("sourceManagerError");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Testing…";
+    }
+    if (errorBox) errorBox.textContent = "";
+
+    try {
+      const result = await request({ action: "probe", ...formPayload() });
+      const probe = result.probe || {};
+      if (errorBox) {
+        errorBox.style.color = "var(--accent)";
+        errorBox.textContent =
+          "OK · HTTP " + (probe.status ?? "—") +
+          (probe.title ? " · " + probe.title : "") +
+          (probe.durationMs != null ? " · " + probe.durationMs + "ms" : "");
+      }
+    } catch (error) {
+      if (errorBox) {
+        errorBox.style.color = "";
+        errorBox.textContent = friendlyError(error);
+      }
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Test source";
+      }
+    }
+  }
+
+  async function previewBulk() {
+    const textarea = document.getElementById("bulkSourceText");
+    const report = document.getElementById("bulkSourceReport");
+    const button = document.getElementById("previewBulkSources");
+    const sources = parseBulkText(textarea?.value || "");
+
+    if (!sources.length) {
+      if (report) report.textContent = "Nothing to preview.";
+      return;
+    }
+    if (sources.length > 100) {
+      if (report) report.textContent = "Maximum 100 rows per import.";
+      return;
+    }
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Previewing…";
+    }
+
+    try {
+      const result = await request({ action: "bulk_preview", sources });
+      if (report) {
+        report.textContent =
+          (result.valid || 0) + " valid · " +
+          (result.skipped || 0) + " skipped · " +
+          (result.errors || 0) + " errors · no changes saved";
+      }
+    } catch (error) {
+      if (report) report.textContent = friendlyError(error);
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Preview import";
+      }
+    }
   }
 
   async function importBulk() {
