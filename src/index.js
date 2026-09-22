@@ -249,6 +249,7 @@ function coreSourceCatalog() {
       enabled: true,
       origin: "core",
       editable: false,
+      entityTags: Array.isArray(entry.entityTags) ? entry.entityTags : [],
       createdBy: null,
       createdAt: null,
       updatedAt: null
@@ -268,6 +269,14 @@ function managedSourceRowToEntry(row) {
     enabled: Number(row.enabled) === 1,
     origin: row.origin || "manual",
     editable: true,
+    entityTags: (() => {
+      try {
+        const parsed = JSON.parse(row.entity_tags_json || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    })(),
     createdBy: row.created_by || null,
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null
@@ -276,11 +285,17 @@ function managedSourceRowToEntry(row) {
 
 async function loadSourceCatalog(db, { includeDisabled = false } = {}) {
   const catalog = coreSourceCatalog();
-  if (!db || await getSchemaVersion(db) < 4) return catalog;
+  const schemaVersion = db ? await getSchemaVersion(db) : 0;
+  if (!db || schemaVersion < 4) return catalog;
+
+  const tagColumn = schemaVersion >= 5
+    ? "entity_tags_json"
+    : "'[]' AS entity_tags_json";
 
   const sql = `SELECT
       source_id, market_id, label, url, source_type,
       cadence_hours, priority, enabled, origin,
+      ${tagColumn},
       created_by, created_at, updated_at
     FROM monitored_sources
     ${includeDisabled ? "" : "WHERE enabled = 1"}
@@ -334,12 +349,27 @@ function normalizeManagedSourceUrl(value) {
   return parsed.toString();
 }
 
+function normalizeEntityTags(value, fallback = []) {
+  const raw = value == null ? fallback : value;
+  const items = Array.isArray(raw)
+    ? raw
+    : String(raw || "").split(/[;,]/);
+
+  return [...new Set(
+    items
+      .map(item => String(item || "").trim())
+      .filter(Boolean)
+      .map(item => item.slice(0, 80))
+  )].slice(0, 12);
+}
+
 function normalizeManagedSourceInput(input, existing = {}) {
   const marketId = String(input?.marketId ?? existing.marketId ?? "").trim();
   const label = String(input?.label ?? existing.label ?? "").trim();
   const type = String(input?.type ?? existing.type ?? "").trim();
   const cadenceHours = Number(input?.cadenceHours ?? existing.cadenceHours ?? 24);
   const priority = String(input?.priority ?? existing.priority ?? "medium").trim().toLowerCase();
+  const entityTags = normalizeEntityTags(input?.entityTags, existing.entityTags || []);
   const url = normalizeManagedSourceUrl(input?.url ?? existing.url ?? "");
 
   if (!ALLOWED_SOURCE_MARKETS.has(marketId)) throw new Error("invalid_source_market");
@@ -348,7 +378,7 @@ function normalizeManagedSourceInput(input, existing = {}) {
   if (!ALLOWED_SOURCE_CADENCES.has(cadenceHours)) throw new Error("invalid_source_cadence");
   if (!ALLOWED_SOURCE_PRIORITIES.has(priority)) throw new Error("invalid_source_priority");
 
-  return { marketId, label, url, type, cadenceHours, priority };
+  return { marketId, label, url, type, cadenceHours, priority, entityTags };
 }
 
 const SOURCE_COVERAGE_PILLARS = [
@@ -1133,7 +1163,7 @@ async function sourceManager(request, env, ctx) {
   if (gate.response) return gate.response;
 
   const schemaVersion = await getSchemaVersion(gate.db);
-  if (schemaVersion < 4) return migrationRequired(schemaVersion, 4);
+  if (schemaVersion < 5) return migrationRequired(schemaVersion, 5);
 
   if (request.method === "GET") {
     const catalog = await loadSourceCatalog(gate.db, { includeDisabled: true });
@@ -1314,9 +1344,9 @@ async function sourceManager(request, env, ctx) {
     try {
       await gate.db.prepare(`INSERT INTO monitored_sources (
           source_id, market_id, label, url, source_type,
-          cadence_hours, priority, enabled, origin,
+          cadence_hours, priority, enabled, origin, entity_tags_json,
           created_by, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'manual', ?8, ?9, ?9)`)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'manual', ?8, ?9, ?10, ?10)`)
         .bind(
           id,
           source.marketId,
@@ -1325,6 +1355,7 @@ async function sourceManager(request, env, ctx) {
           source.type,
           source.cadenceHours,
           source.priority,
+          JSON.stringify(source.entityTags),
           gate.identity.email,
           now
         )
@@ -1405,9 +1436,9 @@ async function sourceManager(request, env, ctx) {
       try {
         await gate.db.prepare(`INSERT INTO monitored_sources (
             source_id, market_id, label, url, source_type,
-            cadence_hours, priority, enabled, origin,
+            cadence_hours, priority, enabled, origin, entity_tags_json,
             created_by, created_at, updated_at
-          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'imported', ?8, ?9, ?9)`)
+          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'imported', ?8, ?9, ?10, ?10)`)
           .bind(
             id,
             source.marketId,
@@ -1416,6 +1447,7 @@ async function sourceManager(request, env, ctx) {
             source.type,
             source.cadenceHours,
             source.priority,
+            JSON.stringify(source.entityTags),
             gate.identity.email,
             now
           )
@@ -1470,7 +1502,7 @@ async function sourceManager(request, env, ctx) {
 
   const row = await gate.db.prepare(`SELECT
       source_id, market_id, label, url, source_type,
-      cadence_hours, priority, enabled, origin,
+      cadence_hours, priority, enabled, origin, entity_tags_json,
       created_by, created_at, updated_at
     FROM monitored_sources
     WHERE source_id = ?1
@@ -1522,8 +1554,9 @@ async function sourceManager(request, env, ctx) {
             source_type = ?4,
             cadence_hours = ?5,
             priority = ?6,
-            updated_at = ?7
-        WHERE source_id = ?8`)
+            entity_tags_json = ?7,
+            updated_at = ?8
+        WHERE source_id = ?9`)
         .bind(
           source.marketId,
           source.label,
@@ -1531,6 +1564,7 @@ async function sourceManager(request, env, ctx) {
           source.type,
           source.cadenceHours,
           source.priority,
+          JSON.stringify(source.entityTags),
           now,
           id
         )
@@ -1840,7 +1874,8 @@ export default {
           url: entry.url,
           cadenceHours: entry.cadenceHours || 24,
           priority: entry.priority || "medium",
-          origin: entry.origin || "core"
+          origin: entry.origin || "core",
+          entityTags: entry.entityTags || []
         }))
       });
     }
