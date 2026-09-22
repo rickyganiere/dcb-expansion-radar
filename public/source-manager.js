@@ -115,7 +115,7 @@
     const style = document.createElement("style");
     style.id = "sourceManagerStyles";
     style.textContent =
-      ".sourceManagerDialog{width:min(1040px,95vw);max-height:90vh}.sourceManagerBody{padding:22px}.sourceCoverage{margin:12px 0;padding:13px}.sourceCoverageGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.sourceCoverageCard{padding:12px}.sourceCoverageHead{display:flex;justify-content:space-between;gap:8px;align-items:center}.sourceCoveragePillars{display:grid;gap:6px;margin-top:8px}.sourceCoveragePillar{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:10px}.coverageStatus{display:inline-flex;align-items:center;gap:5px}.coverageOk{color:#81efd3}.coverageReview{color:#ffd27d}.coverageDegraded{color:#ff9e9e}.coverageUnchecked{color:#b9c8d5}.coverageGap{color:#ffb2b2}.coverageGapBtn{font-size:9px;padding:4px 7px}.sourceCoverageSummary{font-size:10px;color:var(--muted);margin-top:5px}@media(max-width:760px){.sourceCoverageGrid{grid-template-columns:1fr}}.sourceManagerBulk{margin:12px 0;padding:13px}.sourceManagerBulk textarea{width:100%;min-height:130px;resize:vertical}.sourceManagerBulkActions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.sourceManagerBulkReport{margin-top:8px;font-size:10px;color:var(--muted)}.sourceManagerTop{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.sourceManagerTop h2{margin:5px 0}.sourceManagerTop p{color:var(--muted);font-size:11px;line-height:1.55;margin:0}.sourceManagerCounts{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}.sourceManagerCount{font-size:10px;padding:6px 8px;border:1px solid #29455a;border-radius:999px;color:#b9c8d5}.sourceManagerForm{display:grid;grid-template-columns:1.1fr 1.5fr 2.2fr 1.2fr 1fr 1fr;gap:8px;align-items:end;padding:13px;margin:12px 0}.sourceManagerForm label{display:grid;gap:5px;color:var(--muted);font-size:9px}.sourceManagerForm .input{width:100%;min-width:0}.sourceManagerFormActions{display:flex;gap:7px;grid-column:1/-1}.sourceManagerList{display:grid;gap:8px;margin-top:12px}.sourceManagerRow{display:grid;grid-template-columns:minmax(160px,1.6fr) minmax(120px,.8fr) minmax(110px,.7fr) minmax(90px,.6fr) auto;gap:10px;align-items:center;padding:12px}.sourceManagerRow.disabled{opacity:.58}.sourceManagerName strong{display:block;font-size:12px}.sourceManagerName small{display:block;color:var(--muted);font-size:9px;margin-top:4px;word-break:break-all}.sourceManagerMeta{font-size:10px;color:#c7d5df}.sourceOrigin{display:inline-flex;padding:4px 7px;border:1px solid #29455a;border-radius:999px;font-size:9px;text-transform:uppercase}.sourceOrigin.core{color:#8db5ff}.sourceOrigin.manual,.sourceOrigin.imported{color:#81efd3}.sourceManagerError{color:#ffb2b2;font-size:10px;margin-top:8px}.sourceManagerHint{color:var(--muted);font-size:9px;margin-top:5px}@media(max-width:900px){.sourceManagerForm{grid-template-columns:repeat(2,1fr)}.sourceManagerRow{grid-template-columns:1fr 1fr}.sourceManagerRow .rowActions{grid-column:1/-1}}@media(max-width:620px){.sourceManagerForm{grid-template-columns:1fr}.sourceManagerRow{grid-template-columns:1fr}.sourceManagerTop{display:block}.sourceManagerTop .btn{margin-top:10px}}";
+      ".sourceManagerDialog{width:min(1040px,95vw);max-height:90vh}.sourceManagerBody{padding:22px}.coverageAttention{margin:12px 0;padding:13px}.coverageAttentionList{display:grid;gap:7px;margin-top:9px}.coverageAttentionItem{display:grid;grid-template-columns:110px 1fr auto;gap:10px;align-items:center;padding:10px}.coverageUrgency{font-size:9px;text-transform:uppercase;letter-spacing:.04em}.coverageUrgency.critical{color:#ff9e9e}.coverageUrgency.high{color:#ffd27d}.coverageUrgency.medium{color:#b9c8d5}.coverageAttentionReason{font-size:10px;color:var(--muted);margin-top:3px}.sourceCoverage{margin:12px 0;padding:13px}.sourceCoverageGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.sourceCoverageCard{padding:12px}.sourceCoverageHead{display:flex;justify-content:space-between;gap:8px;align-items:center}.sourceCoveragePillars{display:grid;gap:6px;margin-top:8px}.sourceCoveragePillar{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:10px}.coverageStatus{display:inline-flex;align-items:center;gap:5px}.coverageOk{color:#81efd3}.coverageReview{color:#ffd27d}.coverageDegraded{color:#ff9e9e}.coverageUnchecked{color:#b9c8d5}.coverageGap{color:#ffb2b2}.coverageGapBtn{font-size:9px;padding:4px 7px}.sourceCoverageSummary{font-size:10px;color:var(--muted);margin-top:5px}@media(max-width:760px){.sourceCoverageGrid{grid-template-columns:1fr}}.sourceManagerBulk{margin:12px 0;padding:13px}.sourceManagerBulk textarea{width:100%;min-height:130px;resize:vertical}.sourceManagerBulkActions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.sourceManagerBulkReport{margin-top:8px;font-size:10px;color:var(--muted)}.sourceManagerTop{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.sourceManagerTop h2{margin:5px 0}.sourceManagerTop p{color:var(--muted);font-size:11px;line-height:1.55;margin:0}.sourceManagerCounts{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}.sourceManagerCount{font-size:10px;padding:6px 8px;border:1px solid #29455a;border-radius:999px;color:#b9c8d5}.sourceManagerForm{display:grid;grid-template-columns:1.1fr 1.5fr 2.2fr 1.2fr 1fr 1fr;gap:8px;align-items:end;padding:13px;margin:12px 0}.sourceManagerForm label{display:grid;gap:5px;color:var(--muted);font-size:9px}.sourceManagerForm .input{width:100%;min-width:0}.sourceManagerFormActions{display:flex;gap:7px;grid-column:1/-1}.sourceManagerList{display:grid;gap:8px;margin-top:12px}.sourceManagerRow{display:grid;grid-template-columns:minmax(160px,1.6fr) minmax(120px,.8fr) minmax(110px,.7fr) minmax(90px,.6fr) auto;gap:10px;align-items:center;padding:12px}.sourceManagerRow.disabled{opacity:.58}.sourceManagerName strong{display:block;font-size:12px}.sourceManagerName small{display:block;color:var(--muted);font-size:9px;margin-top:4px;word-break:break-all}.sourceManagerMeta{font-size:10px;color:#c7d5df}.sourceOrigin{display:inline-flex;padding:4px 7px;border:1px solid #29455a;border-radius:999px;font-size:9px;text-transform:uppercase}.sourceOrigin.core{color:#8db5ff}.sourceOrigin.manual,.sourceOrigin.imported{color:#81efd3}.sourceManagerError{color:#ffb2b2;font-size:10px;margin-top:8px}.sourceManagerHint{color:var(--muted);font-size:9px;margin-top:5px}@media(max-width:900px){.sourceManagerForm{grid-template-columns:repeat(2,1fr)}.sourceManagerRow{grid-template-columns:1fr 1fr}.sourceManagerRow .rowActions{grid-column:1/-1}}@media(max-width:620px){.sourceManagerForm{grid-template-columns:1fr}.sourceManagerRow{grid-template-columns:1fr}.sourceManagerTop{display:block}.sourceManagerTop .btn{margin-top:10px}}";
     document.head.appendChild(style);
   }
 
@@ -207,6 +207,33 @@
     '</span>';
   }
 
+  function attentionQueueHtml(payload) {
+    const items = (payload?.attentionQueue || []).slice(0, 10);
+    if (!items.length) {
+      return '<div class="card coverageAttention"><div class="eyebrow">Attention queue</div><div class="coverageOk">No unresolved source coverage issues.</div></div>';
+    }
+
+    return '<div class="card coverageAttention">' +
+      '<div class="eyebrow">Attention queue</div>' +
+      '<div class="sourceCoverageSummary">Explainable priority: billing → market/regulatory → commercial ecosystem; gaps before unchecked sources.</div>' +
+      '<div class="coverageAttentionList">' +
+        items.map(item => {
+          const marketName = (window.RADAR_DATA?.markets || []).find(m => m.id === item.marketId)?.name || item.marketId;
+          return '<div class="card coverageAttentionItem">' +
+            '<div><div class="coverageUrgency ' + esc(item.urgency) + '">' + esc(item.urgency) + '</div><strong>' + esc(marketName) + '</strong></div>' +
+            '<div><strong>' + esc(item.label) + ' · ' + esc(item.status) + '</strong><div class="coverageAttentionReason">' + esc(item.reason) + '</div></div>' +
+            '<button type="button" class="btn tiny coverageGapBtn" ' +
+              'data-market="' + esc(item.marketId) + '" ' +
+              'data-type="' + esc(item.suggestedType) + '" ' +
+              'data-cadence="' + esc(item.suggestedCadenceHours) + '" ' +
+              'data-priority="' + esc(item.suggestedPriority) + '" ' +
+              'data-label="' + esc(item.label) + '">Add/Test</button>' +
+          '</div>';
+        }).join('') +
+      '</div>' +
+    '</div>';
+  }
+
   function coverageHtml(payload) {
     if (!payload) {
       return '<div class="card sourceCoverage"><div class="eyebrow">Coverage</div><div class="empty">Coverage data unavailable.</div></div>';
@@ -289,6 +316,7 @@
         '<span class="sourceManagerCount">' + esc(payload.counts?.enabled || 0) + ' enabled</span>' +
         '<span class="sourceManagerCount">' + esc(payload.counts?.disabled || 0) + ' disabled</span>' +
       '</div>' +
+      attentionQueueHtml(coveragePayload) +
       coverageHtml(coveragePayload) +
       formHtml(editing) +
       '<div class="card sourceManagerBulk">' +
