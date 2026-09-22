@@ -15,6 +15,10 @@
     localStorage.setItem(STORE_KEY, JSON.stringify(localState));
   }
 
+  function notifySourceWatchUpdated(detail = {}) {
+    window.dispatchEvent(new CustomEvent("radar:source-watch-updated", { detail }));
+  }
+
   function esc(value) {
     return String(value ?? "").replace(/[&<>"']/g, c => ({
       "&": "&amp;",
@@ -261,6 +265,7 @@
 
       if (result.persisted) {
         await refreshCentralState();
+        notifySourceWatchUpdated({ sourceId: id, mode: "single-check" });
       } else {
         const baselineHash = previous?.baselineHash || previous?.hash || null;
         const hadBaseline = Boolean(baselineHash);
@@ -318,6 +323,7 @@
         if (!response.ok) throw new Error(payload.message || payload.error || "Review failed");
         await refreshCentralState();
         render();
+        notifySourceWatchUpdated({ sourceId: id, mode: "baseline-review" });
       } catch (error) {
         alert(String(error?.message || error));
       }
@@ -357,6 +363,7 @@
         progress.textContent = "Done · " + payload.checked + " checked · " + payload.changed + " changed · " + payload.failed + " failed";
         await refreshCentralState();
         render();
+        notifySourceWatchUpdated({ mode: "full-check", summary: payload });
         return;
       }
 
