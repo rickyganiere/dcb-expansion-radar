@@ -85,12 +85,16 @@ Open the production Radar and verify:
 
 ## 7. Coverage gaps
 
-Open **Manage sources** and verify the Coverage gaps panel:
+Open **Manage sources** and verify the Coverage gaps panel and **Attention Queue**:
 - all six markets are listed;
 - Billing evidence / Market-regulatory / Commercial ecosystem are shown separately;
 - missing pillars expose **Add source**;
 - selecting a gap pre-fills market, type, cadence and priority;
-- after adding a matching source, that gap closes without affecting the other pillars.
+- a failing source shows Degraded rather than Healthy;
+- a new source with no successful check shows Unchecked;
+- Attention Queue lists a reason and suggested source parameters;
+- billing gaps/degraded billing appear before lower-impact ecosystem gaps;
+- after adding and successfully checking a matching source, that gap closes without affecting the other pillars.
 
 ## 8. Source Manager test
 
