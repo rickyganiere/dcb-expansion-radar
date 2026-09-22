@@ -484,7 +484,7 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const health = await call("/api/automation/health", { env, ctx: authenticatedCtx });
   assert.equal(health.status, 200);
   const healthPayload = await health.json();
-  assert.equal(healthPayload.schemaVersion, 4);
+  assert.equal(healthPayload.schemaVersion, 5);
   assert.equal(healthPayload.sources.total, 14);
   assert.equal(healthPayload.sources.rateLimited, 1);
   assert.equal(healthPayload.sources.blocked, 1);
@@ -584,7 +584,8 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
       url: "https://operator.example.com/mexico/updates",
       type: "operator_update",
       cadenceHours: 72,
-      priority: "medium"
+      priority: "medium",
+      entityTags: ["Telcel", "Digital Virgo"]
     }
   });
   assert.equal(create.status, 201);
@@ -641,13 +642,15 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
       url: "https://example.com/billing",
       type: "billing_route",
       cadenceHours: 24,
-      priority: "high"
+      priority: "high",
+      entityTags: ["Telcel", "AT&T Mexico"]
     }
   });
   assert.equal(create.status, 201);
   const createPayload = await create.json();
   assert.equal(createPayload.source.origin, "manual");
   assert.equal(createPayload.source.enabled, true);
+  assert.deepEqual(createPayload.source.entityTags, ["Telcel", "AT&T Mexico"]);
   const customId = createPayload.source.id;
 
   const activeSources = await call("/api/sources", { env, ctx: authenticatedCtx });
@@ -671,6 +674,7 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const updatePayload = await update.json();
   assert.equal(updatePayload.source.label, "Updated operator billing page");
   assert.equal(updatePayload.source.cadenceHours, 72);
+  assert.deepEqual(updatePayload.source.entityTags, ["Telcel", "Digital Virgo"]);
 
   const disable = await call("/api/source-manager", {
     env,
@@ -721,7 +725,8 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
           url: "https://preview.example.com/one",
           type: "market_update",
           cadenceHours: 72,
-          priority: "medium"
+          priority: "medium",
+          entityTags: ["TIM Brasil"]
         },
         {
           marketId: "brazil",
@@ -791,6 +796,7 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   assert.equal(bulkPayload.skipped, 1);
   assert.equal(bulkPayload.errors, 1);
   assert.equal(bulkPayload.createdSources[0].origin, "imported");
+  assert.deepEqual(bulkPayload.createdSources[0].entityTags, ["TIM Brasil"]);
 
   const afterBulk = await call("/api/source-manager", { env, ctx: authenticatedCtx });
   const afterBulkPayload = await afterBulk.json();
@@ -798,9 +804,11 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
 
   const activeAfterBulk = await call("/api/sources", { env, ctx: authenticatedCtx });
   const activeAfterBulkPayload = await activeAfterBulk.json();
-  assert.ok(activeAfterBulkPayload.sources.some(source =>
+  const bulkActiveSource = activeAfterBulkPayload.sources.find(source =>
     source.url === "https://bulk.example.com/one"
-  ));
+  );
+  assert.ok(bulkActiveSource);
+  assert.deepEqual(bulkActiveSource.entityTags, ["TIM Brasil"]);
 
   const tooMany = await call("/api/source-manager", {
     env,
@@ -1086,5 +1094,6 @@ console.log("Worker smoke tests passed:", {
   bulkImportPreview: true,
   sourceCoverage: true,
   coverageHealthStates: true,
-  coverageAttentionQueue: true
+  coverageAttentionQueue: true,
+  sourceEntityTags: true
 });
