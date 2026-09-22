@@ -571,12 +571,55 @@ async function checkSourceById(id, env, actor = "manual") {
   }
 }
 
-async function runAllSourceChecks(env, actor = "system") {
+function effectiveCadenceHours(entry, state) {
+  let hours = Number(entry?.cadenceHours || 24);
+  if (!Number.isFinite(hours) || hours <= 0) hours = 24;
+
+  const status = Number(state?.last_http_status || 0);
+  const error = String(state?.last_error || "").toLowerCase();
+
+  if (status === 429) hours = Math.max(hours, 24);
+  if (error.includes("bot challenge")) hours = Math.max(hours, 72);
+
+  return hours;
+}
+
+function sourceDueTimestamp(entry, state) {
+  if (!state?.checked_at) return 0;
+  const checkedAt = Date.parse(state.checked_at);
+  if (!Number.isFinite(checkedAt)) return 0;
+  return checkedAt + effectiveCadenceHours(entry, state) * 60 * 60 * 1000;
+}
+
+function sourceIsDue(entry, state, nowMs = Date.now()) {
+  return sourceDueTimestamp(entry, state) <= nowMs;
+}
+
+async function loadSourceScheduleStates(db) {
+  const result = await db.prepare(`SELECT
+      source_id, checked_at, last_http_status, last_error
+    FROM source_watch_state`).all();
+
+  return Object.fromEntries(
+    (result?.results || []).map(row => [row.source_id, row])
+  );
+}
+
+async function runAllSourceChecks(env, actor = "system", options = {}) {
   if (!env.RADAR_DB) {
     return { ok: false, error: "d1_not_configured", checked: 0, changed: 0, failed: 0 };
   }
 
-  const ids = Object.keys(SOURCE_REGISTRY);
+  const allIds = Object.keys(SOURCE_REGISTRY);
+  const respectCadence = options.respectCadence ?? actor === "cron";
+  let ids = allIds;
+
+  if (respectCadence) {
+    const states = await loadSourceScheduleStates(env.RADAR_DB);
+    const nowMs = Date.now();
+    ids = allIds.filter(id => sourceIsDue(SOURCE_REGISTRY[id], states[id], nowMs));
+  }
+
   const concurrency = 3;
   let cursor = 0;
   const results = [];
@@ -615,11 +658,14 @@ async function runAllSourceChecks(env, actor = "system") {
 
   const summary = {
     ok: failed === 0,
+    registered: allIds.length,
     attempted: ids.length,
+    skippedByCadence: Math.max(0, allIds.length - ids.length),
     checked,
     changed,
     failed,
     concurrency,
+    cadenceAware: respectCadence,
     completedAt: new Date().toISOString(),
     actor
   };
@@ -660,8 +706,9 @@ async function automationHealth(request, env, ctx) {
   const discoveryCount = schemaVersion >= 3
     ? gate.db.prepare("SELECT COUNT(*) AS pending FROM discovery_candidates WHERE status = 'pending'").first()
     : Promise.resolve({ pending: 0 });
+  const scheduleStatesPromise = loadSourceScheduleStates(gate.db);
 
-  const [counts, runRow, summaryRow, discoveryRow] = await Promise.all([
+  const [counts, runRow, summaryRow, discoveryRow, scheduleStates] = await Promise.all([
     gate.db.prepare(`SELECT
       COUNT(*) AS tracked,
       SUM(CASE WHEN last_hash IS NOT NULL AND last_error IS NULL AND changed = 0 THEN 1 ELSE 0 END) AS healthy,
@@ -674,7 +721,8 @@ async function automationHealth(request, env, ctx) {
     FROM source_watch_state`).first(),
     gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_run' LIMIT 1").first(),
     gate.db.prepare("SELECT value FROM app_meta WHERE key = 'last_source_watch_summary' LIMIT 1").first(),
-    discoveryCount
+    discoveryCount,
+    scheduleStatesPromise
   ]);
 
   let lastSummary = null;
@@ -684,10 +732,19 @@ async function automationHealth(request, env, ctx) {
     lastSummary = null;
   }
 
-  const registryTotal = Object.keys(SOURCE_REGISTRY).length;
+  const registryEntries = Object.entries(SOURCE_REGISTRY);
+  const registryTotal = registryEntries.length;
   const tracked = Number(counts?.tracked || 0);
   const databaseUnchecked = Number(counts?.unchecked || 0);
   const unchecked = Math.max(0, registryTotal - tracked) + databaseUnchecked;
+  const nowMs = Date.now();
+  const dueNow = registryEntries.filter(([id, entry]) =>
+    sourceIsDue(entry, scheduleStates[id], nowMs)
+  ).length;
+  const dueTimestamps = registryEntries.map(([id, entry]) =>
+    sourceDueTimestamp(entry, scheduleStates[id])
+  );
+  const nextDueMs = dueTimestamps.length ? Math.min(...dueTimestamps) : 0;
 
   return json({
     ok: true,
@@ -705,7 +762,9 @@ async function automationHealth(request, env, ctx) {
       unchecked,
       rateLimited: Number(counts?.rate_limited || 0),
       blocked: Number(counts?.blocked || 0),
-      stale: Number(counts?.stale || 0)
+      stale: Number(counts?.stale || 0),
+      dueNow,
+      nextDueAt: nextDueMs ? new Date(Math.max(nextDueMs, nowMs)).toISOString() : null
     },
     discovery: {
       pending: Number(discoveryRow?.pending || 0)
@@ -935,7 +994,9 @@ export default {
           marketId: entry.marketId,
           label: entry.label,
           type: entry.type,
-          url: entry.url
+          url: entry.url,
+          cadenceHours: entry.cadenceHours || 24,
+          priority: entry.priority || "medium"
         }))
       });
     }
@@ -1065,6 +1126,6 @@ export default {
 
   async scheduled(_controller, env, ctx) {
     if (!env.RADAR_DB) return;
-    ctx.waitUntil(runAllSourceChecks(env, "cron"));
+    ctx.waitUntil(runAllSourceChecks(env, "cron", { respectCadence: true }));
   }
 };
