@@ -164,6 +164,7 @@ class FakeStatement {
         source_type,
         cadence_hours,
         priority,
+        entity_tags_json,
         created_by,
         created_at
       ] = this.args;
@@ -181,7 +182,8 @@ class FakeStatement {
         cadence_hours,
         priority,
         enabled: 1,
-        origin: "manual",
+        origin: this.sql.includes("'imported'") ? "imported" : "manual",
+        entity_tags_json,
         created_by,
         created_at,
         updated_at: created_at
@@ -207,6 +209,7 @@ class FakeStatement {
         source_type,
         cadence_hours,
         priority,
+        entity_tags_json,
         updated_at
       ] = this.args;
       source.market_id = market_id;
@@ -215,6 +218,7 @@ class FakeStatement {
       source.source_type = source_type;
       source.cadence_hours = cadence_hours;
       source.priority = priority;
+      source.entity_tags_json = entity_tags_json;
       source.updated_at = updated_at;
       return { success: true, meta: { changes: 1 } };
     }
@@ -239,7 +243,7 @@ class FakeD1 {
   constructor() {
     this.row = null;
     this.appMeta = {
-      schema_version: "4",
+      schema_version: "5",
       last_source_watch_run: "2026-09-21T23:04:18.973Z",
       last_source_watch_summary: JSON.stringify({
         ok: true,
