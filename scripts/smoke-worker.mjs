@@ -611,6 +611,78 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
   const unsafePayload = await unsafe.json();
   assert.equal(unsafePayload.error, "source_url_host_not_allowed");
 
+  const bulk = await call("/api/source-manager", {
+    env,
+    ctx: authenticatedCtx,
+    method: "POST",
+    body: {
+      action: "bulk_create",
+      sources: [
+        {
+          marketId: "brazil",
+          label: "Bulk valid source",
+          url: "https://bulk.example.com/one",
+          type: "market_update",
+          cadenceHours: 72,
+          priority: "medium"
+        },
+        {
+          marketId: "brazil",
+          label: "Bulk duplicate source",
+          url: "https://bulk.example.com/one",
+          type: "market_update",
+          cadenceHours: 72,
+          priority: "medium"
+        },
+        {
+          marketId: "mexico",
+          label: "Unsafe source",
+          url: "https://127.0.0.1/private",
+          type: "billing_route",
+          cadenceHours: 24,
+          priority: "high"
+        }
+      ]
+    }
+  });
+  assert.equal(bulk.status, 207);
+  const bulkPayload = await bulk.json();
+  assert.equal(bulkPayload.requested, 3);
+  assert.equal(bulkPayload.created, 1);
+  assert.equal(bulkPayload.skipped, 1);
+  assert.equal(bulkPayload.errors, 1);
+  assert.equal(bulkPayload.createdSources[0].origin, "imported");
+
+  const afterBulk = await call("/api/source-manager", { env, ctx: authenticatedCtx });
+  const afterBulkPayload = await afterBulk.json();
+  assert.equal(afterBulkPayload.counts.custom, 2);
+
+  const activeAfterBulk = await call("/api/sources", { env, ctx: authenticatedCtx });
+  const activeAfterBulkPayload = await activeAfterBulk.json();
+  assert.ok(activeAfterBulkPayload.sources.some(source =>
+    source.url === "https://bulk.example.com/one"
+  ));
+
+  const tooMany = await call("/api/source-manager", {
+    env,
+    ctx: authenticatedCtx,
+    method: "POST",
+    body: {
+      action: "bulk_create",
+      sources: Array.from({ length: 101 }, (_, index) => ({
+        marketId: "mexico",
+        label: "Source " + index,
+        url: "https://example.com/source-" + index,
+        type: "market_update",
+        cadenceHours: 24,
+        priority: "medium"
+      }))
+    }
+  });
+  assert.equal(tooMany.status, 413);
+  const tooManyPayload = await tooMany.json();
+  assert.equal(tooManyPayload.error, "bulk_source_limit");
+
   const editCore = await call("/api/source-manager", {
     env,
     ctx: authenticatedCtx,
@@ -796,5 +868,6 @@ console.log("Worker smoke tests passed:", {
   protectedSourceWatchReads: true,
   cadenceScheduling: true,
   sourceManager: true,
-  sourceContentGuard: true
+  sourceContentGuard: true,
+  bulkSourceImport: true
 });
