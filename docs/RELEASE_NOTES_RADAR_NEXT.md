@@ -61,7 +61,17 @@ Target: `main`
 - Each candidate links to both the source and its market.
 - Pending/accepted/dismissed counts are visible.
 
-### 6. Source Manager
+### 6. Source Coverage
+- New coverage matrix per market with three explicit pillars:
+  - Billing evidence
+  - Market / regulatory
+  - Commercial ecosystem
+- Missing pillars become actionable gaps.
+- Gap buttons prefill market, source type, cadence and priority in Source Manager.
+- Coverage updates immediately when a custom source is added or disabled.
+- No opaque score is used: the UI shows the actual source presence behind each pillar.
+
+### 7. Source Manager
 - New authenticated Source Manager backed by D1.
 - The 14 core sources remain protected and read-only.
 - Custom sources can be:
@@ -81,7 +91,7 @@ Target: `main`
 - Duplicate URLs are skipped instead of duplicated.
 - Custom sources feed Source Watch and Discovery Inbox but never auto-promote to verified intelligence.
 
-### 7. D1 schema v4
+### 8. D1 schema v4
 Migration 0003 adds:
 - `discovery_candidates`
 
@@ -91,14 +101,14 @@ Migration 0004 adds:
 Migration 0003 also clears known anti-bot baselines before writing schema version 3.
 Migration 0004 advances the schema to version 4.
 
-### 8. Product copy / UI cleanup
+### 9. Product copy / UI cleanup
 - Removed stale “prototype” and old-backend language.
 - Workflow copy reflects D1 persistence, Discovery Inbox and automation.
 - Pipeline copy reflects local fallback + D1 sync.
 - Product status presents the tool as an operational intelligence workspace.
 - Operational panels refresh together after checks/reviews/source changes.
 
-### 9. Testing
+### 10. Testing
 CI validates feature branches and covers:
 - intelligence data
 - JavaScript syntax
