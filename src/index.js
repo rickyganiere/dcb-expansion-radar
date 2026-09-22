@@ -351,6 +351,76 @@ function normalizeManagedSourceInput(input, existing = {}) {
   return { marketId, label, url, type, cadenceHours, priority };
 }
 
+const SOURCE_COVERAGE_PILLARS = [
+  {
+    id: "billing",
+    label: "Billing evidence",
+    types: ["billing_route"],
+    suggestedType: "billing_route",
+    suggestedCadenceHours: 24,
+    suggestedPriority: "high"
+  },
+  {
+    id: "market",
+    label: "Market / regulatory",
+    types: ["market_update"],
+    suggestedType: "market_update",
+    suggestedCadenceHours: 168,
+    suggestedPriority: "medium"
+  },
+  {
+    id: "ecosystem",
+    label: "Commercial ecosystem",
+    types: ["operator_update", "partner_update", "corporate_change"],
+    suggestedType: "operator_update",
+    suggestedCadenceHours: 72,
+    suggestedPriority: "medium"
+  }
+];
+
+function buildSourceCoverage(catalog) {
+  const entries = Object.values(catalog || {}).filter(source => source.enabled !== false);
+  const markets = [...ALLOWED_SOURCE_MARKETS].sort();
+
+  return markets.map(marketId => {
+    const marketSources = entries.filter(source => source.marketId === marketId);
+    const pillars = SOURCE_COVERAGE_PILLARS.map(pillar => {
+      const matching = marketSources.filter(source => pillar.types.includes(source.type));
+      return {
+        id: pillar.id,
+        label: pillar.label,
+        covered: matching.length > 0,
+        sourceCount: matching.length,
+        sourceIds: matching.map(source => source.id),
+        suggestedType: pillar.suggestedType,
+        suggestedCadenceHours: pillar.suggestedCadenceHours,
+        suggestedPriority: pillar.suggestedPriority
+      };
+    });
+
+    const covered = pillars.filter(pillar => pillar.covered).length;
+    const gaps = pillars
+      .filter(pillar => !pillar.covered)
+      .map(pillar => ({
+        pillarId: pillar.id,
+        label: pillar.label,
+        suggestedType: pillar.suggestedType,
+        suggestedCadenceHours: pillar.suggestedCadenceHours,
+        suggestedPriority: pillar.suggestedPriority
+      }));
+
+    return {
+      marketId,
+      activeSources: marketSources.length,
+      coveredPillars: covered,
+      totalPillars: pillars.length,
+      complete: covered === pillars.length,
+      pillars,
+      gaps
+    };
+  });
+}
+
 function sourceErrorResponse(error, fallbackStatus = 400) {
   const code = String(error?.message || error || "invalid_source");
   const conflict = /unique constraint/i.test(code) || code === "duplicate_source_url";
@@ -1408,6 +1478,37 @@ async function sourceManager(request, env, ctx) {
   return json({ ok: false, error: "unsupported_source_action" }, { status: 400 });
 }
 
+async function sourceCoverage(request, env, ctx) {
+  const gate = await requireWorkspaceContext(request, env, ctx);
+  if (gate.response) return gate.response;
+
+  const schemaVersion = await getSchemaVersion(gate.db);
+  if (schemaVersion < 4) return migrationRequired(schemaVersion, 4);
+
+  const catalog = await loadSourceCatalog(gate.db);
+  const markets = buildSourceCoverage(catalog);
+  const gaps = markets.flatMap(market =>
+    market.gaps.map(gap => ({ marketId: market.marketId, ...gap }))
+  );
+
+  return json({
+    ok: true,
+    pillars: SOURCE_COVERAGE_PILLARS.map(pillar => ({
+      id: pillar.id,
+      label: pillar.label,
+      types: pillar.types
+    })),
+    summary: {
+      markets: markets.length,
+      completeMarkets: markets.filter(market => market.complete).length,
+      gaps: gaps.length,
+      activeSources: Object.keys(catalog).length
+    },
+    markets,
+    gaps
+  });
+}
+
 async function discoveryInbox(request, env, ctx, url) {
   const gate = await requireWorkspaceContext(request, env, ctx);
   if (gate.response) return gate.response;
@@ -1645,6 +1746,10 @@ export default {
       return sourceManager(request, env, ctx);
     }
 
+    if (url.pathname === "/api/source-coverage" && request.method === "GET") {
+      return sourceCoverage(request, env, ctx);
+    }
+
     if (url.pathname === "/api/automation/health" && request.method === "GET") {
       return automationHealth(request, env, ctx);
     }
@@ -1751,7 +1856,8 @@ export default {
           "d1-workspace-sync",
           "scheduled-source-checks-ready",
           "automation-health",
-          "discovery-inbox"
+          "discovery-inbox",
+          "source-coverage"
         ],
         nextBackendStep: !env.RADAR_DB
           ? "bind-d1-database"
