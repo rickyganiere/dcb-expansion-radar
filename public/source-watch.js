@@ -33,6 +33,14 @@
     return (window.RADAR_DATA?.markets || []).find(m => m.id === id)?.name || id;
   }
 
+  function cadenceLabel(hours) {
+    const value = Number(hours || 24);
+    if (value < 24) return "Every " + value + "h";
+    if (value === 24) return "Daily";
+    if (value % 24 === 0) return "Every " + (value / 24) + " days";
+    return "Every " + value + "h";
+  }
+
   function installStyles() {
     if (document.getElementById("sourceWatchStyles")) return;
     const style = document.createElement("style");
@@ -186,7 +194,7 @@
       return '<tr class="sourceWatchRow ' + (changed ? "changedRow" : "") + '">' +
         '<td><strong>' + esc(marketName(source.marketId)) + '</strong></td>' +
         '<td><strong>' + esc(source.label) + '</strong><span class="sourceWatchMeta">' + esc(meta.detail) + '</span></td>' +
-        '<td>' + esc(source.type.replaceAll("_"," ")) + '</td>' +
+        '<td>' + esc(source.type.replaceAll("_"," ")) + '<span class="sourceWatchMeta">' + esc(cadenceLabel(source.cadenceHours)) + ' · ' + esc(source.priority || "medium") + ' priority</span></td>' +
         '<td>' + esc(meta.when) + '</td>' +
         '<td><span class="watchStatus ' + esc(status.cls) + '">' + esc(status.label) + '</span></td>' +
         '<td><div class="rowActions"><button class="btn tiny checkSourceBtn" data-source-id="' + esc(source.id) + '">Check</button>' + accept + history + '<a class="btn tiny profileLink" href="' + esc(source.url) + '" target="_blank" rel="noreferrer">Open ↗</a></div></td>' +
