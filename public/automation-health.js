@@ -114,6 +114,7 @@
     load();
     window.addEventListener("radar:source-watch-updated", load);
     window.addEventListener("radar:discovery-updated", load);
+    window.addEventListener("radar:sources-updated", load);
     setInterval(load, 60000);
   }
 
