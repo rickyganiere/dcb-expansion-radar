@@ -10,7 +10,7 @@ Do not merge the feature branch before both pending D1 migrations are applied.
 Required:
 - GitHub Actions validation passes.
 - JavaScript syntax checks pass.
-- D1 schema validation reports version 4.
+- D1 schema validation reports version 5.
 - Worker smoke tests pass.
 - Required static assets are present.
 - No Supabase references remain in active code.
@@ -33,9 +33,19 @@ Then execute the exact contents of:
 migrations/0004_monitored_sources.sql
 ```
 
-This creates `monitored_sources` and advances the schema to version 4.
+This creates `monitored_sources` and advances the schema to version 5.
 
-## 4. Verify schema
+## 4. Apply migration 0005
+
+Then execute the exact contents of:
+
+```text
+migrations/0005_source_entity_tags.sql
+```
+
+This adds operator / partner tags to managed sources and advances the schema to version 5.
+
+## 5. Verify schema
 
 Run:
 
@@ -65,17 +75,17 @@ Expected:
 - `discovery_candidates`
 - `monitored_sources`
 
-## 5. Merge once
+## 6. Merge once
 
-Merge `feature/radar-next` into `main` only after schema version 4 is confirmed.
+Merge `feature/radar-next` into `main` only after schema version 5 is confirmed.
 
 This single merge is the production release trigger.
 
-## 6. Post-deploy checks
+## 7. Post-deploy checks
 
 Open the production Radar and verify:
 - Cloudflare Access login still works.
-- API badge shows `API + D1 v4 online`.
+- API badge shows `API + D1 v5 online`.
 - Automation Health loads.
 - Source Watch loads central authenticated state.
 - Discovery Inbox loads without database errors.
@@ -83,7 +93,7 @@ Open the production Radar and verify:
 - Workspace D1 sync shows the authenticated user.
 - Pipeline/shortlist changes persist after refresh.
 
-## 7. Coverage gaps
+## 8. Coverage gaps
 
 Open **Manage sources** and verify the Coverage gaps panel and **Attention Queue**:
 - all six markets are listed;
@@ -96,7 +106,7 @@ Open **Manage sources** and verify the Coverage gaps panel and **Attention Queue
 - billing gaps/degraded billing appear before lower-impact ecosystem gaps;
 - after adding and successfully checking a matching source, that gap closes without affecting the other pillars.
 
-## 8. Source Manager test
+## 9. Source Manager test
 
 Open **Manage sources**.
 
@@ -119,11 +129,14 @@ Verify:
 - Preview import reports valid/skipped/errors without writing records;
 - Test source succeeds on a normal HTML page and rejects a bot/security challenge;
 - duplicate URLs are skipped;
-- export CSV contains core and custom source metadata.
+- entity tags can be created and edited;
+- updating a source without the tag field preserves existing tags;
+- bulk CSV imports semicolon-separated entity tags;
+- export CSV contains entity tags for custom sources.
 
 The temporary source can remain disabled after the test so history is preserved.
 
-## 9. Manual Source Watch test
+## 10. Manual Source Watch test
 
 Run **Check all sources**.
 
@@ -137,7 +150,7 @@ Expected behavior:
 - changed fingerprints create Discovery Inbox candidates;
 - repeated checks with the same changed hash do not duplicate candidates.
 
-## 10. Cadence verification
+## 11. Cadence verification
 
 Automation Health should show **Due now**.
 
@@ -149,7 +162,7 @@ A scheduled run should:
 
 Manual **Check all sources** intentionally ignores cadence.
 
-## 11. Database verification
+## 12. Database verification
 
 Check:
 
@@ -179,7 +192,7 @@ FROM monitored_sources
 GROUP BY enabled;
 ```
 
-## 12. Release complete
+## 13. Release complete
 
 Only mark the release complete when:
 - branch CI is green;
