@@ -385,6 +385,47 @@ function sourceOperationalStatus(state) {
   return "healthy";
 }
 
+function coverageAttentionItem(marketId, pillar) {
+  const pillarWeight = pillar.id === "billing" ? 30 : pillar.id === "market" ? 20 : 10;
+  const stateWeight = pillar.status === "gap"
+    ? 4
+    : pillar.status === "degraded"
+      ? 3
+      : pillar.status === "unchecked"
+        ? 2
+        : 0;
+
+  if (!stateWeight) return null;
+
+  const urgency = pillar.id === "billing" && ["gap", "degraded"].includes(pillar.status)
+    ? "critical"
+    : pillar.id === "market" && ["gap", "degraded"].includes(pillar.status)
+      ? "high"
+      : pillar.status === "gap"
+        ? "high"
+        : "medium";
+
+  const reason = pillar.status === "gap"
+    ? "No active source covers " + pillar.label.toLowerCase() + "."
+    : pillar.status === "degraded"
+      ? "Existing source coverage is failing checks."
+      : "Source exists but has not completed a successful check yet.";
+
+  return {
+    marketId,
+    pillarId: pillar.id,
+    label: pillar.label,
+    status: pillar.status,
+    urgency,
+    order: pillarWeight + stateWeight,
+    reason,
+    suggestedType: pillar.suggestedType,
+    suggestedCadenceHours: pillar.suggestedCadenceHours,
+    suggestedPriority: pillar.suggestedPriority,
+    sourceIds: pillar.sourceIds
+  };
+}
+
 function buildSourceCoverage(catalog, sourceStates = {}) {
   const entries = Object.values(catalog || {}).filter(source => source.enabled !== false);
   const markets = [...ALLOWED_SOURCE_MARKETS].sort();
@@ -1535,6 +1576,18 @@ async function sourceCoverage(request, env, ctx) {
   const atRisk = markets.flatMap(market =>
     market.atRisk.map(item => ({ marketId: market.marketId, ...item }))
   );
+  const attentionQueue = markets
+    .flatMap(market =>
+      market.pillars
+        .map(pillar => coverageAttentionItem(market.marketId, pillar))
+        .filter(Boolean)
+    )
+    .sort((a, b) =>
+      b.order - a.order ||
+      String(a.marketId).localeCompare(String(b.marketId)) ||
+      String(a.label).localeCompare(String(b.label))
+    )
+    .map(({ order, ...item }) => item);
 
   return json({
     ok: true,
@@ -1549,11 +1602,13 @@ async function sourceCoverage(request, env, ctx) {
       operationalCompleteMarkets: markets.filter(market => market.operationalComplete).length,
       gaps: gaps.length,
       atRisk: atRisk.length,
+      attention: attentionQueue.length,
       activeSources: Object.keys(catalog).length
     },
     markets,
     gaps,
-    atRisk
+    atRisk,
+    attentionQueue
   });
 }
 
