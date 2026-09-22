@@ -7,7 +7,8 @@ const discoverySql = fs.readFileSync("migrations/0003_discovery_inbox.sql", "utf
 const managedSourcesSql = fs.readFileSync("migrations/0004_monitored_sources.sql", "utf8");
 const entityTagsSql = fs.readFileSync("migrations/0005_source_entity_tags.sql", "utf8");
 const commercialEntitiesSql = fs.readFileSync("migrations/0006_commercial_entities.sql", "utf8");
-const combined = workspaceSql + "\n" + sourceSql + "\n" + discoverySql + "\n" + managedSourcesSql + "\n" + entityTagsSql + "\n" + commercialEntitiesSql;
+const appDiscoverySql = fs.readFileSync("migrations/0007_app_discovery_queue.sql", "utf8");
+const combined = workspaceSql + "\n" + sourceSql + "\n" + discoverySql + "\n" + managedSourcesSql + "\n" + entityTagsSql + "\n" + commercialEntitiesSql + "\n" + appDiscoverySql;
 
 assert.match(workspaceSql, /CREATE TABLE IF NOT EXISTS workspace_state/i);
 assert.match(workspaceSql, /payload_json TEXT NOT NULL CHECK \(json_valid\(payload_json\)\)/i);
@@ -54,6 +55,12 @@ assert.match(commercialEntitiesSql, /status TEXT NOT NULL DEFAULT 'candidate'/i)
 assert.match(commercialEntitiesSql, /UNIQUE\(entity_id, asset_type, url\)/i);
 assert.match(commercialEntitiesSql, /schema_version', '6/i);
 
+assert.match(appDiscoverySql, /CREATE TABLE IF NOT EXISTS app_discovery_seeds/i);
+assert.match(appDiscoverySql, /CREATE TABLE IF NOT EXISTS app_discovery_queue/i);
+assert.match(appDiscoverySql, /scan_status TEXT NOT NULL DEFAULT 'pending'/i);
+assert.match(appDiscoverySql, /FOREIGN KEY \(entity_id\) REFERENCES commercial_entities/i);
+assert.match(appDiscoverySql, /schema_version', '7/i);
+
 assert.doesNotMatch(combined, /auth\.users/i);
 assert.doesNotMatch(combined, /jsonb/i);
 assert.doesNotMatch(combined, /timestamptz/i);
@@ -68,7 +75,7 @@ assert.equal(wrangler.d1_databases?.[0]?.binding, "RADAR_DB");
 assert.deepEqual(wrangler.triggers?.crons, ["0 6,18 * * *"]);
 
 console.log("D1 migration validation passed:", {
-  schemaVersion: 6,
+  schemaVersion: 7,
   tables: [
     "workspace_state",
     "app_meta",
@@ -77,9 +84,11 @@ console.log("D1 migration validation passed:", {
     "discovery_candidates",
     "monitored_sources",
     "commercial_entities",
-    "commercial_assets"
+    "commercial_assets",
+    "app_discovery_seeds",
+    "app_discovery_queue"
   ],
-  migrations: 6,
+  migrations: 7,
   binding: "RADAR_DB",
   cron: "0 6,18 * * *"
 });
