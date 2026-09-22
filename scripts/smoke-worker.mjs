@@ -783,7 +783,8 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
           url: "https://bulk.example.com/one",
           type: "market_update",
           cadenceHours: 72,
-          priority: "medium"
+          priority: "medium",
+          entityTags: ["TIM Brasil"]
         },
         {
           marketId: "brazil",
