@@ -83,7 +83,16 @@ Open the production Radar and verify:
 - Workspace D1 sync shows the authenticated user.
 - Pipeline/shortlist changes persist after refresh.
 
-## 7. Source Manager test
+## 7. Coverage gaps
+
+Open **Manage sources** and verify the Coverage gaps panel:
+- all six markets are listed;
+- Billing evidence / Market-regulatory / Commercial ecosystem are shown separately;
+- missing pillars expose **Add source**;
+- selecting a gap pre-fills market, type, cadence and priority;
+- after adding a matching source, that gap closes without affecting the other pillars.
+
+## 8. Source Manager test
 
 Open **Manage sources**.
 
@@ -110,7 +119,7 @@ Verify:
 
 The temporary source can remain disabled after the test so history is preserved.
 
-## 8. Manual Source Watch test
+## 9. Manual Source Watch test
 
 Run **Check all sources**.
 
@@ -124,7 +133,7 @@ Expected behavior:
 - changed fingerprints create Discovery Inbox candidates;
 - repeated checks with the same changed hash do not duplicate candidates.
 
-## 9. Cadence verification
+## 10. Cadence verification
 
 Automation Health should show **Due now**.
 
@@ -136,7 +145,7 @@ A scheduled run should:
 
 Manual **Check all sources** intentionally ignores cadence.
 
-## 10. Database verification
+## 11. Database verification
 
 Check:
 
@@ -166,7 +175,7 @@ FROM monitored_sources
 GROUP BY enabled;
 ```
 
-## 11. Release complete
+## 12. Release complete
 
 Only mark the release complete when:
 - branch CI is green;
