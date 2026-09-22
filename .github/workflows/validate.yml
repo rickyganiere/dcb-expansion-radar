@@ -38,6 +38,7 @@ jobs:
           node --check public/d1-sync.js
           node --check public/automation-health.js
           node --check public/discovery-inbox.js
+          node --check public/source-manager.js
           node --check src/source-registry.js
           node --check src/access-auth.js
           node --check src/index.js
@@ -57,5 +58,7 @@ jobs:
           test -f migrations/0001_workspace.sql
           test -f migrations/0002_source_watch.sql
           test -f migrations/0003_discovery_inbox.sql
+          test -f migrations/0004_monitored_sources.sql
           test -f public/automation-health.js
           test -f public/discovery-inbox.js
+          test -f public/source-manager.js
