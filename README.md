@@ -132,6 +132,7 @@ Source checks:
 - run with concurrency capped at 3
 - stagger requests to the same hostname
 - retry HTTP 429 and 5xx responses
+- accept only HTML/XHTML/plain-text monitored content up to 2 MB
 - retain a reviewed baseline
 - store check history
 - keep changed state pending until baseline review
