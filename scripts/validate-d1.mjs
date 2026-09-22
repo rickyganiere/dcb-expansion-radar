@@ -5,7 +5,8 @@ const workspaceSql = fs.readFileSync("migrations/0001_workspace.sql", "utf8");
 const sourceSql = fs.readFileSync("migrations/0002_source_watch.sql", "utf8");
 const discoverySql = fs.readFileSync("migrations/0003_discovery_inbox.sql", "utf8");
 const managedSourcesSql = fs.readFileSync("migrations/0004_monitored_sources.sql", "utf8");
-const combined = workspaceSql + "\n" + sourceSql + "\n" + discoverySql + "\n" + managedSourcesSql;
+const entityTagsSql = fs.readFileSync("migrations/0005_source_entity_tags.sql", "utf8");
+const combined = workspaceSql + "\n" + sourceSql + "\n" + discoverySql + "\n" + managedSourcesSql + "\n" + entityTagsSql;
 
 assert.match(workspaceSql, /CREATE TABLE IF NOT EXISTS workspace_state/i);
 assert.match(workspaceSql, /payload_json TEXT NOT NULL CHECK \(json_valid\(payload_json\)\)/i);
@@ -40,6 +41,11 @@ assert.match(managedSourcesSql, /enabled INTEGER NOT NULL DEFAULT 1/i);
 assert.match(managedSourcesSql, /UNIQUE/i);
 assert.match(managedSourcesSql, /schema_version', '4/i);
 
+assert.match(entityTagsSql, /ALTER TABLE monitored_sources/i);
+assert.match(entityTagsSql, /entity_tags_json TEXT NOT NULL DEFAULT '\[\]'/i);
+assert.match(entityTagsSql, /json_valid\(entity_tags_json\)/i);
+assert.match(entityTagsSql, /schema_version', '5/i);
+
 assert.doesNotMatch(combined, /auth\.users/i);
 assert.doesNotMatch(combined, /jsonb/i);
 assert.doesNotMatch(combined, /timestamptz/i);
@@ -54,7 +60,7 @@ assert.equal(wrangler.d1_databases?.[0]?.binding, "RADAR_DB");
 assert.deepEqual(wrangler.triggers?.crons, ["0 6,18 * * *"]);
 
 console.log("D1 migration validation passed:", {
-  schemaVersion: 4,
+  schemaVersion: 5,
   tables: [
     "workspace_state",
     "app_meta",
@@ -63,6 +69,7 @@ console.log("D1 migration validation passed:", {
     "discovery_candidates",
     "monitored_sources"
   ],
+  migrations: 5,
   binding: "RADAR_DB",
   cron: "0 6,18 * * *"
 });
