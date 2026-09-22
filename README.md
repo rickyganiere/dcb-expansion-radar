@@ -35,8 +35,10 @@ Production remains on `main`. New development is prepared on `feature/radar-next
 - Source Watch with central D1 baselines, history and reviewable changes
 - Twice-daily Source Watch Cron
 - Same-host throttling and retry/backoff for 429/5xx source responses
+- Per-source cadence and priority with cadence-aware scheduled scans
 - Automation Health dashboard
 - Discovery Inbox for reviewable source-change candidates
+- D1 Source Manager for adding/editing/disabling custom monitored sources
 - Per-market commercial notes
 - Workspace backup/restore
 - Shareable market deep links
@@ -86,6 +88,7 @@ Cloudflare Worker
         |       |- source_watch_state
         |       |- source_watch_history
         |       |- discovery_candidates
+        |       |- monitored_sources
         |       |- app_meta
         |
         +----> Cloudflare Access
@@ -99,7 +102,7 @@ Static market intelligence remains versioned in GitHub until automatic discovery
 
 ## D1 schema
 
-Current prepared schema version: **3**.
+Current prepared schema version: **4**.
 
 ### Migration 0001
 - `workspace_state`
@@ -111,6 +114,9 @@ Current prepared schema version: **3**.
 
 ### Migration 0003
 - `discovery_candidates`
+
+### Migration 0004
+- `monitored_sources`
 
 Workspace writes use optimistic versioning. A stale client receives `409 version_conflict` instead of silently overwriting newer cloud state.
 
@@ -130,6 +136,8 @@ Source checks:
 - store check history
 - keep changed state pending until baseline review
 - create one Discovery Inbox candidate per unique source hash
+- skip non-due sources during scheduled Cron runs
+- preserve full manual checks on demand
 
 ## API
 
@@ -148,6 +156,8 @@ Core endpoints:
 - `GET /api/automation/health`
 - `GET /api/discovery/inbox?status=pending`
 - `POST /api/discovery/review`
+- `GET /api/source-manager`
+- `POST /api/source-manager`
 
 D1 workspace and review actions require a verified Cloudflare Access identity.
 
@@ -167,6 +177,7 @@ public/
   source-watch.js
   automation-health.js
   discovery-inbox.js
+  source-manager.js
   market-notes.js
   followup-alerts.js
   market-report.js
@@ -178,6 +189,7 @@ migrations/
   0001_workspace.sql
   0002_source_watch.sql
   0003_discovery_inbox.sql
+  0004_monitored_sources.sql
 scripts/
   validate-data.mjs
   validate-d1.mjs
