@@ -1,5 +1,6 @@
 import { SOURCE_REGISTRY } from "./source-registry.js";
 import { getVerifiedAccessIdentity, enforcePinnedAudience } from "./access-auth.js";
+import { scanAppListing, persistAppScan, listCommercialEntities, reviewCommercialEntity, PUBLISHER_DISCOVERY_ERRORS } from "./publisher-discovery.js";
 
 function json(data, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -1880,6 +1881,102 @@ export default {
       });
     }
 
+    if (url.pathname === "/api/publisher-discovery" && request.method === "GET") {
+      const gate = await requireWorkspaceContext(request, env, ctx);
+      if (gate.response) return gate.response;
+
+      const schemaVersion = await getSchemaVersion(gate.db);
+      if (schemaVersion < 6) return migrationRequired(schemaVersion, 6);
+
+      const result = await listCommercialEntities(gate.db, {
+        status: String(url.searchParams.get("status") || ""),
+        marketId: String(url.searchParams.get("market") || ""),
+        role: String(url.searchParams.get("role") || ""),
+        query: String(url.searchParams.get("q") || "")
+      });
+
+      return json({ ok: true, ...result });
+    }
+
+    if (url.pathname === "/api/publisher-discovery/scan-app" && request.method === "POST") {
+      const gate = await requireWorkspaceContext(request, env, ctx);
+      if (gate.response) return gate.response;
+
+      const schemaVersion = await getSchemaVersion(gate.db);
+      if (schemaVersion < 6) return migrationRequired(schemaVersion, 6);
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ ok: false, error: "invalid_json" }, { status: 400 });
+      }
+
+      try {
+        const scan = await scanAppListing(
+          body?.url,
+          body?.marketId || null,
+          ALLOWED_SOURCE_MARKETS
+        );
+        const row = await persistAppScan(gate.db, scan, gate.identity.email);
+
+        return json({
+          ok: true,
+          scan,
+          entity: {
+            id: row.entity_id,
+            name: row.name,
+            role: row.primary_role,
+            marketId: row.market_id,
+            domain: row.domain,
+            websiteUrl: row.website_url,
+            status: row.status,
+            confidence: row.confidence,
+            reason: row.discovery_reason,
+            firstSourceKind: row.first_source_kind
+          }
+        });
+      } catch (error) {
+        const code = String(error?.message || error || "publisher_scan_failed");
+        const clientError = PUBLISHER_DISCOVERY_ERRORS.has(code);
+        return json({
+          ok: false,
+          error: clientError ? code : "publisher_scan_failed",
+          detail: clientError ? undefined : code,
+          httpStatus: error?.httpStatus ?? null,
+          durationMs: error?.durationMs ?? null
+        }, { status: clientError ? 400 : 422 });
+      }
+    }
+
+    if (url.pathname === "/api/publisher-discovery/review" && request.method === "POST") {
+      const gate = await requireWorkspaceContext(request, env, ctx);
+      if (gate.response) return gate.response;
+
+      const schemaVersion = await getSchemaVersion(gate.db);
+      if (schemaVersion < 6) return migrationRequired(schemaVersion, 6);
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ ok: false, error: "invalid_json" }, { status: 400 });
+      }
+
+      try {
+        return json({
+          ok: true,
+          ...(await reviewCommercialEntity(gate.db, body))
+        });
+      } catch (error) {
+        const code = String(error?.message || error || "publisher_review_failed");
+        return json({
+          ok: false,
+          error: PUBLISHER_DISCOVERY_ERRORS.has(code) ? code : "publisher_review_failed"
+        }, { status: code === "entity_not_found" ? 404 : 400 });
+      }
+    }
+
     if (url.pathname === "/api/source-manager" && (request.method === "GET" || request.method === "POST")) {
       return sourceManager(request, env, ctx);
     }
@@ -1995,7 +2092,9 @@ export default {
           "scheduled-source-checks-ready",
           "automation-health",
           "discovery-inbox",
-          "source-coverage"
+          "source-coverage",
+          "publisher-discovery",
+          "app-store-publisher-scan"
         ],
         nextBackendStep: !env.RADAR_DB
           ? "bind-d1-database"
