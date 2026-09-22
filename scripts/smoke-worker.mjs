@@ -733,6 +733,47 @@ async function call(path, { env = { ASSETS: assets }, ctx = unauthenticatedCtx, 
 }
 
 {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(new Uint8Array([1, 2, 3, 4]), {
+      status: 200,
+      headers: { "content-type": "application/pdf" }
+    });
+
+  try {
+    const response = await call("/api/check-source?id=mx-google-play");
+    assert.equal(response.status, 502);
+    const payload = await response.json();
+    assert.equal(payload.error, "source_check_failed");
+    assert.match(payload.detail, /Unsupported source content type/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+{
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response("<html><body>small body</body></html>", {
+      status: 200,
+      headers: {
+        "content-type": "text/html",
+        "content-length": "2000001"
+      }
+    });
+
+  try {
+    const response = await call("/api/check-source?id=mx-google-play");
+    assert.equal(response.status, 502);
+    const payload = await response.json();
+    assert.equal(payload.error, "source_check_failed");
+    assert.match(payload.detail, /exceeds 2 MB limit/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+{
   const response = await call("/api/not-real");
   assert.equal(response.status, 404);
 }
@@ -754,5 +795,6 @@ console.log("Worker smoke tests passed:", {
   botChallengeDetection: true,
   protectedSourceWatchReads: true,
   cadenceScheduling: true,
-  sourceManager: true
+  sourceManager: true,
+  sourceContentGuard: true
 });
