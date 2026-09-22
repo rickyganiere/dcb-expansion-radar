@@ -1,4 +1,5 @@
 (() => {
+  let loading = false;
   function esc(value) {
     return String(value ?? "").replace(/[&<>"']/g, c => ({
       "&": "&amp;",
@@ -78,8 +79,10 @@
   }
 
   async function load() {
+    if (loading) return;
+    loading = true;
     const panel = ensurePanel();
-    if (!panel) return;
+    if (!panel) { loading = false; return; }
 
     const button = document.getElementById("refreshAutomationHealth");
     if (button) {
@@ -96,6 +99,7 @@
       const root = document.getElementById("automationHealthBody");
       if (root) root.innerHTML = '<div class="automationHealthError">' + esc(error.message) + '</div>';
     } finally {
+      loading = false;
       if (button) {
         button.disabled = false;
         button.textContent = "Refresh";
@@ -107,6 +111,8 @@
     installStyles();
     ensurePanel();
     load();
+    window.addEventListener("radar:source-watch-updated", load);
+    window.addEventListener("radar:discovery-updated", load);
     setInterval(load, 60000);
   }
 
