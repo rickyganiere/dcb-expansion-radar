@@ -39,7 +39,9 @@ jobs:
           node --check public/automation-health.js
           node --check public/discovery-inbox.js
           node --check public/source-manager.js
+          node --check public/publisher-discovery.js
           node --check src/source-registry.js
+          node --check src/publisher-discovery.js
           node --check src/access-auth.js
           node --check src/index.js
           node --check scripts/validate-d1.mjs
@@ -49,6 +51,9 @@ jobs:
 
       - name: Smoke test Worker API
         run: node scripts/smoke-worker.mjs
+
+      - name: Smoke test Publisher Discovery
+        run: node scripts/smoke-publisher-discovery.mjs
 
       - name: Check required static assets
         run: |
@@ -60,6 +65,9 @@ jobs:
           test -f migrations/0003_discovery_inbox.sql
           test -f migrations/0004_monitored_sources.sql
           test -f migrations/0005_source_entity_tags.sql
+          test -f migrations/0006_commercial_entities.sql
           test -f public/automation-health.js
           test -f public/discovery-inbox.js
           test -f public/source-manager.js
+          test -f public/publisher-discovery.js
+          test -f src/publisher-discovery.js
