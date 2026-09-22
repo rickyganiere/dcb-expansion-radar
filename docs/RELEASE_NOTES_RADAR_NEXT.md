@@ -76,6 +76,8 @@ Target: `main`
 - Direct IPs, localhost/internal hosts, embedded credentials and custom ports are rejected.
 - Supported cadence values: 12h, 24h, 72h and 168h.
 - Bulk import accepts up to 100 rows per request and reports created/skipped/errors.
+- **Preview import** validates CSV rows without writing anything to D1.
+- **Test source** probes a single candidate URL before saving it, including bot-challenge/content checks.
 - Duplicate URLs are skipped instead of duplicated.
 - Custom sources feed Source Watch and Discovery Inbox but never auto-promote to verified intelligence.
 
