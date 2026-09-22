@@ -6,7 +6,8 @@ const sourceSql = fs.readFileSync("migrations/0002_source_watch.sql", "utf8");
 const discoverySql = fs.readFileSync("migrations/0003_discovery_inbox.sql", "utf8");
 const managedSourcesSql = fs.readFileSync("migrations/0004_monitored_sources.sql", "utf8");
 const entityTagsSql = fs.readFileSync("migrations/0005_source_entity_tags.sql", "utf8");
-const combined = workspaceSql + "\n" + sourceSql + "\n" + discoverySql + "\n" + managedSourcesSql + "\n" + entityTagsSql;
+const commercialEntitiesSql = fs.readFileSync("migrations/0006_commercial_entities.sql", "utf8");
+const combined = workspaceSql + "\n" + sourceSql + "\n" + discoverySql + "\n" + managedSourcesSql + "\n" + entityTagsSql + "\n" + commercialEntitiesSql;
 
 assert.match(workspaceSql, /CREATE TABLE IF NOT EXISTS workspace_state/i);
 assert.match(workspaceSql, /payload_json TEXT NOT NULL CHECK \(json_valid\(payload_json\)\)/i);
@@ -46,6 +47,13 @@ assert.match(entityTagsSql, /entity_tags_json TEXT NOT NULL DEFAULT '\[\]'/i);
 assert.match(entityTagsSql, /json_valid\(entity_tags_json\)/i);
 assert.match(entityTagsSql, /schema_version', '5/i);
 
+assert.match(commercialEntitiesSql, /CREATE TABLE IF NOT EXISTS commercial_entities/i);
+assert.match(commercialEntitiesSql, /CREATE TABLE IF NOT EXISTS commercial_assets/i);
+assert.match(commercialEntitiesSql, /primary_role TEXT NOT NULL DEFAULT 'publisher'/i);
+assert.match(commercialEntitiesSql, /status TEXT NOT NULL DEFAULT 'candidate'/i);
+assert.match(commercialEntitiesSql, /UNIQUE\(entity_id, asset_type, url\)/i);
+assert.match(commercialEntitiesSql, /schema_version', '6/i);
+
 assert.doesNotMatch(combined, /auth\.users/i);
 assert.doesNotMatch(combined, /jsonb/i);
 assert.doesNotMatch(combined, /timestamptz/i);
@@ -60,16 +68,18 @@ assert.equal(wrangler.d1_databases?.[0]?.binding, "RADAR_DB");
 assert.deepEqual(wrangler.triggers?.crons, ["0 6,18 * * *"]);
 
 console.log("D1 migration validation passed:", {
-  schemaVersion: 5,
+  schemaVersion: 6,
   tables: [
     "workspace_state",
     "app_meta",
     "source_watch_state",
     "source_watch_history",
     "discovery_candidates",
-    "monitored_sources"
+    "monitored_sources",
+    "commercial_entities",
+    "commercial_assets"
   ],
-  migrations: 5,
+  migrations: 6,
   binding: "RADAR_DB",
   cron: "0 6,18 * * *"
 });
