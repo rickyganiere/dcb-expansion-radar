@@ -1,4 +1,4 @@
-import { SOURCE_REGISTRY } from "./source-registry.js";
+import { SOURCE_REGISTRY, sourceEvidenceProfile } from "./source-registry.js";
 import { getVerifiedAccessIdentity, enforcePinnedAudience } from "./access-auth.js";
 
 function json(data, init = {}) {
@@ -68,12 +68,19 @@ async function inspectSource(id, entry) {
   const titleMatch = raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? normalizeSourceText(titleMatch[1]).slice(0, 180) : null;
 
+  const evidence = sourceEvidenceProfile(entry);
+
   return {
     id,
     marketId: entry.marketId,
     label: entry.label,
     type: entry.type,
     url: entry.url,
+    provenanceClass: evidence.provenanceClass,
+    authorityScore: evidence.authorityScore,
+    freshnessHours: evidence.freshnessHours,
+    evidenceScope: evidence.evidenceScope,
+    confidenceScore: response.ok ? evidence.authorityScore : 0,
     ok: response.ok,
     status: response.status,
     finalUrl: response.url,
@@ -288,6 +295,7 @@ async function workspaceStatus(request, env, ctx) {
 async function getSourceState(db) {
   const result = await db.prepare(`SELECT
       source_id, market_id, label, source_type, url,
+      provenance_class, authority_score, freshness_hours, evidence_scope, confidence_score,
       baseline_hash, last_hash, changed,
       last_http_status, last_duration_ms, last_title, last_error,
       checked_at, reviewed_at, reviewed_by, review_note
@@ -309,15 +317,21 @@ async function persistSourceSuccess(db, result, actor = "system") {
 
   const stateStatement = db.prepare(`INSERT INTO source_watch_state (
       source_id, market_id, label, source_type, url,
+      provenance_class, authority_score, freshness_hours, evidence_scope, confidence_score,
       baseline_hash, last_hash, changed,
       last_http_status, last_duration_ms, last_title, last_error,
       checked_at, updated_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?12)
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL, ?17, ?17)
     ON CONFLICT(source_id) DO UPDATE SET
       market_id = excluded.market_id,
       label = excluded.label,
       source_type = excluded.source_type,
       url = excluded.url,
+      provenance_class = excluded.provenance_class,
+      authority_score = excluded.authority_score,
+      freshness_hours = excluded.freshness_hours,
+      evidence_scope = excluded.evidence_scope,
+      confidence_score = excluded.confidence_score,
       baseline_hash = excluded.baseline_hash,
       last_hash = excluded.last_hash,
       changed = excluded.changed,
@@ -333,6 +347,11 @@ async function persistSourceSuccess(db, result, actor = "system") {
       result.label,
       result.type,
       result.url,
+      result.provenanceClass,
+      result.authorityScore,
+      result.freshnessHours,
+      result.evidenceScope,
+      result.confidenceScore,
       baselineHash,
       result.hash,
       changed,
@@ -384,17 +403,24 @@ async function persistSourceFailure(db, id, entry, error, actor = "system") {
   const httpStatus = Number.isInteger(error?.httpStatus) ? error.httpStatus : null;
   const durationMs = Number.isFinite(error?.durationMs) ? Math.max(0, Math.round(error.durationMs)) : null;
   const title = error?.title ? String(error.title).slice(0, 180) : null;
+  const evidence = sourceEvidenceProfile(entry);
 
   await db.prepare(`INSERT INTO source_watch_state (
       source_id, market_id, label, source_type, url,
+      provenance_class, authority_score, freshness_hours, evidence_scope, confidence_score,
       changed, last_http_status, last_duration_ms, last_title,
       last_error, checked_at, updated_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, ?9, ?10, ?10)
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, 0, ?10, ?11, ?12, ?13, ?14, ?14)
     ON CONFLICT(source_id) DO UPDATE SET
       market_id = excluded.market_id,
       label = excluded.label,
       source_type = excluded.source_type,
       url = excluded.url,
+      provenance_class = excluded.provenance_class,
+      authority_score = excluded.authority_score,
+      freshness_hours = excluded.freshness_hours,
+      evidence_scope = excluded.evidence_scope,
+      confidence_score = 0,
       last_http_status = excluded.last_http_status,
       last_duration_ms = excluded.last_duration_ms,
       last_title = COALESCE(excluded.last_title, source_watch_state.last_title),
@@ -407,6 +433,10 @@ async function persistSourceFailure(db, id, entry, error, actor = "system") {
       entry.label,
       entry.type,
       entry.url,
+      evidence.provenanceClass,
+      evidence.authorityScore,
+      evidence.freshnessHours,
+      evidence.evidenceScope,
       httpStatus,
       durationMs,
       title,
