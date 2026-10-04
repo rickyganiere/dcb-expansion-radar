@@ -84,3 +84,57 @@ export const SOURCE_REGISTRY = {
     type: "billing_route"
   }
 };
+
+const DIRECT_OPERATOR_HOSTS = new Set([
+  "www.tim.com.br",
+  "www.personal.com.ar",
+  "ayuda.movistar.com.ar",
+  "www.claro.com.ar"
+]);
+
+const REGULATOR_HOST_HINTS = [
+  "gob.mx",
+  "crcom.gov.co",
+  "gov.br",
+  "osiptel.gob.pe",
+  "subtel.gob.cl"
+];
+
+export function sourceEvidenceProfile(entry) {
+  const url = new URL(entry.url);
+  const host = url.hostname.toLowerCase();
+
+  if (DIRECT_OPERATOR_HOSTS.has(host)) {
+    return {
+      provenanceClass: "operator_direct",
+      authorityScore: 94,
+      freshnessHours: 72,
+      evidenceScope: entry.type === "billing_route" ? "operator_billing_route" : entry.type
+    };
+  }
+
+  if (host === "support.google.com") {
+    return {
+      provenanceClass: "platform_official",
+      authorityScore: 90,
+      freshnessHours: 168,
+      evidenceScope: "store_billing_route"
+    };
+  }
+
+  if (REGULATOR_HOST_HINTS.some(hint => host === hint || host.endsWith("." + hint))) {
+    return {
+      provenanceClass: "regulator_official",
+      authorityScore: 96,
+      freshnessHours: 336,
+      evidenceScope: "market_structure"
+    };
+  }
+
+  return {
+    provenanceClass: "public_evidence",
+    authorityScore: 70,
+    freshnessHours: 168,
+    evidenceScope: entry.type || "unknown"
+  };
+}
